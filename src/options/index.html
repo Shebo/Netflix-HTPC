@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <script src="../../js/jquery/jquery.min.js"></script>
+
+        <!-- load javascript: Bootstrap v2.3.0 - http://twitter.github.com/bootstrap/ -->
+        <script type="text/javascript" src="../../js/bootstrap.min.js"></script>
+
+        <script src="../../js/underscore-min.js"></script>
+        <script src="../../js/keyboard.js"></script>
+
+        <!-- load stylesheets: Bootstrap v2.3.0 - http://twitter.github.com/bootstrap/index.html -->
+        <link rel="stylesheet" type="text/css" href="../../css/bootstrap.min.css"></link>
+        <style type="text/css">
+            body.loading input {
+                text-indent: -9999px;
+            }
+            .alert {
+
+            }
+        </style>
+    </head>
+    <body class="loading">
+        <div class="container-fluid">
+            <h2>Keyboard Shorcuts</h2>
+
+            <form id="shortcuts" name="shortcuts" class="form-horizontal">
+                <ul class="list-unstyled">
+                    <li class="form-group">
+                        <label for="up" class="col-sm-2 control-label text-capitalize">up</label>
+                        <div class="col-sm-6">
+                            <div class="input-group">
+                                <input type="text" name="up" class="form-control text-capitalize" value="up" />
+                                <span class="input-group-btn">
+                                    <button class="clear-input btn btn-danger" type="button" data-toggle="tooltip" data-placement="top" title="Clear">
+                                        <span class="glyphicon glyphicon-remove" aria-label="Clear"></span>
+                                    </button>
+                                </span>
+                            </div>
+                        </div>
+                    </li>
+                    <li class="form-group">
+                        <label for="down" class="col-sm-2 control-label text-capitalize">down</label>
+                        <div class="col-sm-6">
+                            <div class="input-group">
+                                <input type="text" name="down" class="form-control text-capitalize" value="down" />
+                                <span class="input-group-btn">
+                                    <button class="clear-input btn btn-danger" type="button" data-toggle="tooltip" data-placement="top" title="Clear">
+                                        <span class="glyphicon glyphicon-remove" aria-label="Clear"></span>
+                                    </button>
+                                </span>
+                            </div>
+                        </div>
+                    </li>
+                    <li class="form-group">
+                        <label for="left" class="col-sm-2 control-label text-capitalize">left</label>
+                        <div class="col-sm-6">
+                            <div class="input-group">
+                                <input type="text" name="left" class="form-control text-capitalize" value="left" />
+                                <span class="input-group-btn">
+                                    <button class="clear-input btn btn-danger" type="button" data-toggle="tooltip" data-placement="top" title="Clear">
+                                        <span class="glyphicon glyphicon-remove" aria-label="Clear"></span>
+                                    </button>
+                                </span>
+                            </div>
+                        </div>
+                    </li>
+                    <li class="form-group">
+                        <label for="right" class="col-sm-2 control-label text-capitalize">right</label>
+                        <div class="col-sm-6">
+                            <div class="input-group">
+                                <input type="text" name="right" class="form-control text-capitalize" value="right" />
+                                <span class="input-group-btn">
+                                    <button class="clear-input btn btn-danger" type="button" data-toggle="tooltip" data-placement="top" title="Clear">
+                                        <span class="glyphicon glyphicon-remove" aria-label="Clear"></span>
+                                    </button>
+                                </span>
+                            </div>
+                        </div>
+                    </li>
+                    <li class="form-group">
+                        <label for="ok" class="col-sm-2 control-label text-capitalize">ok</label>
+                        <div class="col-sm-6">
+                            <div class="input-group">
+                                <input type="text" name="ok" class="form-control text-capitalize" value="ok" />
+                                <span class="input-group-btn">
+                                    <button class="clear-input btn btn-danger" type="button" data-toggle="tooltip" data-placement="top" title="Clear">
+                                        <span class="glyphicon glyphicon-remove" aria-label="Clear"></span>
+                                    </button>
+                                </span>
+                            </div>
+                        </div>
+                    </li>
+                    <li class="form-group">
+                        <label for="cancel" class="col-sm-2 control-label text-capitalize">cancel</label>
+                        <div class="col-sm-6">
+                            <div class="input-group">
+                                <input type="text" name="cancel" class="form-control text-capitalize" value="cancel" />
+                                <span class="input-group-btn">
+                                    <button class="clear-input btn btn-danger" type="button" data-toggle="tooltip" data-placement="top" title="Clear">
+                                        <span class="glyphicon glyphicon-remove" aria-label="Clear"></span>
+                                    </button>
+                                </span>
+                            </div>
+                        </div>
+                    </li>
+                    <li class="form-group">
+                        <div class="col-sm-offset-2 col-sm-2">
+                            <button id="save" type="submit" class="btn btn-primary btn-md" data-loading-text="Saving...">Save Options</button>
+                        </div>
+                        <div class="col-sm-4">
+                            <div class="alert-wrapper"></div>
+                        </div>
+                    </li>
+                </ul>
+            </form>
+        </div>
+
+        <!-- load javascript: unique html page javascript file -->
+        <script type="text/javascript" src="options.js"></script>
+    </body>
+</html>

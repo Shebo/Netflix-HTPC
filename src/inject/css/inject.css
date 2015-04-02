@@ -1,0 +1,15 @@
+/**
+ * Place your custom CSS styles here.
+ **/
+body {
+	/*background: yellow !important;
+	background: black !important;*/
+}
+
+.active-list {
+	background: black !important;
+}
+
+.active-movie {
+	background: red !important;
+}
