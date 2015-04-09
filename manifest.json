@@ -43,6 +43,7 @@
         "js/event.simulate.js",
         "js/jquery.simulate.js",
         "js/keyboard.js",
+        "js/arrive.min.js",
         "src/inject/js/class.js",
         "src/inject/js/inject.js"
       ],
@@ -50,7 +51,7 @@
     }
   ],
   "web_accessible_resources": [
-    // "js/jquery/jquery.min.js",
+    "js/jquery/jquery.min.js",
     "src/inject/js/controller.js"
   ],
   "externally_connectable": {
