@@ -28,12 +28,6 @@ chrome.extension.sendMessage {}, (response) ->
                 console.log "child is appended"
 
 
-
-
-
-
-
-
             # shebo1 = $('#sheboshebo1')
             # shebo2 = $('#sheboshebo2')
 
@@ -43,6 +37,13 @@ chrome.extension.sendMessage {}, (response) ->
 
             anchor = movie.find("a") || movie
             anchor.simulate 'mouseover'
+
+            # $.ajax url: 'http://www.netflix.com/WiGenre?agid=7627', dataType: 'html', success: (result) ->
+
+            #     serverDefs = /"serverDefs":{"data":({.*?}),"/gi
+            #     object = serverDefs.exec result
+            #     console.log 'inject', object[1]
+            #     JSON.parse object[1]
 
 
             # window.postMessage("The user is 'bob' and the password is 'secret'", 'http://www.netflix.com')
@@ -63,87 +64,199 @@ chrome.extension.sendMessage {}, (response) ->
     , 10
     return
 
-getObjectKeyInArray = (array, object) ->
-    for el, i in array
-        if el is object
-            return i
-    false
+class Utils
 
-isEmpty = (variable) ->
-    not (variable?.length)
-
-class EventHandler
-    hhh = []
-    constructor: ->
-    dispatch: (action) =>
-        $.event.trigger
-            type: "NetflixHTPC"
-            action: action
+    @getObjectKeyInArray: (array, object) ->
+        for el, i in array
+            if el is object
+                return i
         false
 
-class ActionHandler extends EventHandler
+    @isJson: (str) ->
+        try
+            JSON.parse str
+        catch e
+            return false
+        true
 
-    @actions = [
-        'left', 'up', 'right', 'down'
-        'ok', 'cancel'
-    ]
+    @injectScript: (path) ->
+        script = document.createElement "script"
+        script.src = chrome.extension.getURL path
+        document.head.appendChild script
+
+    @rawAjax: (url) ->
+        request = new XMLHttpRequest()
+        deferred = Q.defer()
+        request.open 'GET', url, true
+
+        request.onload = ->
+            if request.status is 200
+                result = if Utils.isJson request.responseText then JSON.parse request.responseText else request.responseText
+                deferred.resolve result
+            else
+                deferred.reject request.status
+
+        request.onerror = ->
+            deferred.reject request.status
+
+        request.onprogress = ->
+            deferred.notify event.loaded / event.total
+
+        request.send()
+        deferred.promise;
+
+class EventHandler
+    constructor: ->
+    dispatch: (type, action, info = undefined) =>
+        # safe dispatch - dispatch event only after jQuery ($ object) is loaded
+        if $? then @_safeDispatch type, action, info
+        else
+            dispatchInterval = setInterval () ->
+                if $?
+                    clearInterval dispatchInterval
+                    @_safeDispatch type, action, info
+            , 10
+
+    _safeDispatch: (type, action, info) =>
+        $.event.trigger
+            type   : type
+            action : action
+            info   : info
+        false
+
+
+# handling all keyboard actions
+class ActionHandler extends EventHandler
 
     constructor: ->
         super
-        @initShortcuts()
+        @actions = [
+            'left', 'up', 'right', 'down'
+            'ok', 'cancel'
+        ]
+        @_initShortcuts()
+        @_initActionBlocker()
 
-    initShortcuts: =>
+    # get all user's registerd action combos and bind them
+    _initShortcuts: =>
         chrome.storage.sync.get @actions, (shortcuts) =>
             for action, combo of shortcuts
-                @bindShortcuts(action, combo)
+                @_bindShortcuts action, combo
+            true
+
+    _initActionBlocker: =>
+        @isAllowed = true
+        # deny action if in input/textarea/utton element is focused on
+        $(":input").focus (e) => @isAllowed = false
+        # re-allow action if in input/textarea/utton element is focused out
+        $(":input").blur (e) => @isAllowed = true
 
     # this method exist only because Keyboard.JS bug
     # every action in the callback that under a loop - get's overriden by the last action
-    bindShortcuts: (action, combo) =>
-        console.log(action)
+    _bindShortcuts: (action, combo) =>
         KeyboardJS.on combo, (e) =>
-            @dispatch(action)
+            @dispatch 'NetflixHTPCControl', action if @isAllowed
 
+# handling all transmissions between seperated scripts
 class TransmissionHandler extends EventHandler
 
     constructor: ->
         @source = 'GroundControl'
-        @target = 'MajorTom'
 
         window.addEventListener 'message', @_recieve
         # window.addEventListener 'message', (e) =>
         #     @_recieve(e)
 
-    transmit: (action) =>
+    transmit: (target, type, action, data = undefined) =>
         # data = data || {}
         window.postMessage
-            source: @source
-            target: @target
-            action: action
+            sender    : @source
+            recipient : target
+            action    : action
+            type      : type
+            data      : data
             , '*'
 
     _recieve: (event) =>
-        if event.data.source is @target
-            console.log event
-            @dispatch(event.data.action)
+        msg = event.data
+        @dispatch msg.type, msg.action, msg.data if msg.recipient is @source
 
-            # $.event.trigger
-            #     type: "NetflixHTPC"
-            #     action: action
-            # @transmit('test-back', {a:3,b:4})
+            # if msg.type is 'request'
+            #     @transmit msg.from, 'response', @[msg.action]()
+            # else if msg.type is 'response'
+            #     console.log 'response'
+            # else if msg.type is 'NetflixHTPCConstants'
+            #     @dispatch(msg.type, 'update', msg.data)
+
+
+class Constants
+
+    constructor: ->
+        # chrome.storage.local.clear () =>
+        @getNetflixData().then (data) =>
+            @data = true
+            console.log 'yes consts'
+            @saveNetflixData(data)
+        , (error) =>
+            console.log 'no consts'
+            @data = false
+
+        $(document).on "NetflixHTPCConstants", (e) =>
+            if e.action is 'update'
+                @setNetflixData JSON.stringify(e.info), () => @saveNetflixData JSON.stringify(e.info)
+
+    getNetflixData: =>
+        deferred = Q.defer()
+
+        chrome.storage.local.get 'netflixData', (data) =>
+            if not _.isEmpty data
+                @saveNetflixData data['netflixData']
+                deferred.resolve data['netflixData']
+            else
+                deferred.reject()
+
+        deferred.promise
+
+    setNetflixData: (data, callback) =>
+        chrome.storage.local.set {netflixData: data}, callback
+
+    saveNetflixData: (data) =>
+        @[k] = v for k, v of JSON.parse data
+
+
+class NetflixAPI
+    @isRelative = true
+
+    @_getRoot: =>
+        if not @isRelative then "#{if constants.isSecure then "https" else "http"}://#{constants.domain}/" else ''
+
+    @_getAPIRoot: =>
+        "#{@_getRoot()}/#{constants.APIRoot}/#{constants.APIKey}"
+
+    @getMovieInfo: (movieID, trackID, jquery=true, style='shakti') ->
+
+        if jquery
+            Q $.getJSON "#{@_getRoot()}/#{constants.APIRoot}/#{constants.APIKey}/bob",
+                titleid: movieID
+                trackid: trackID
+                authURL: constants.authURL
+        else
+            Utils.rawAjax "#{@_getRoot()}/#{constants.APIRoot}/#{constants.APIKey}/bob?titleid=#{movieID}&trackid=#{trackID}&authURL=#{constants.authURL}"
 
 
 class HTMLSelectors
-
+    # elements needs to be hidden
     @toHide = ['']
+
+    # elements needs to remove
     @toDelete = [
         '.sliderButton'
         '.boxShotDivider' # horizontal lines that start/end movie lists
         '.recentlyWatched .cta-recommend' # recomend button inside recentlyWatched (first) movie
     ]
 
-    @nav = '.nav-wrap'
     @HTMLAndBody = 'html, body'
+    @nav = '.nav-wrap'
 
     @activeClass =
         list  : '.active-list'
@@ -236,7 +349,7 @@ class DomManipulation
             scrollTop: scrollPosition
         , 300
 
-
+# Netflix List object
 class List
 
     constructor: (HTMLSelectors, lists, position = 0) ->
@@ -256,16 +369,20 @@ class List
     _getTitle: ->
         $.trim @Object.find(@HTML.list.title).last().text()
 
-
+# Netflix Movie object
 class Movie
 
     constructor: (HTMLSelectors, movies, position = 0) ->
         @HTML = HTMLSelectors
 
-        @Object   = @_getObject(movies, position)
-        @Title    = @_getTitle()
-        @Poster   = @_getPoster()
-        @URL      = @_getURL()
+        @Object     = @_getObject(movies, position)
+        @Title      = @_getTitle()
+        @Poster     = @_getPoster()
+        @URL        = @_getURL()
+        @MovieID    = @_getMovieID()
+        @TrackID    = @_getTrackID()
+        @ListIndex  = @_getListIndex()
+        @MovieIndex = @_getMovieIndex()
 
     _getObject: (collection, position) ->
         if position == 0
@@ -281,8 +398,17 @@ class Movie
         @Object.find(@HTML.movie.poster).attr('src')
     _getURL: ->
         @Object.find(@HTML.movie.url).attr('href')
+    _getMovieID: ->
+        @Object.find(@HTML.movie.url).attr('data-uitrack').split(',')[0]
+    _getTrackID: ->
+        @Object.find(@HTML.movie.url).attr('data-uitrack').split(',')[1]
+    _getListIndex: ->
+        @Object.find(@HTML.movie.url).attr('data-uitrack').split(',')[2]
+    _getMovieIndex: ->
+        @Object.find(@HTML.movie.url).attr('data-uitrack').split(',')[3]
 
 
+# abstract class for navigation
 class BaseController
 
     constructor: ->
@@ -294,7 +420,7 @@ class BaseController
             OK     : 'ok'
             CANCEL : 'cancel'
 
-        $(document).on "NetflixHTPC", (e) =>
+        $(document).on "NetflixHTPCControl", (e) =>
             setTimeout =>
                 console.log "jquery event:", e
                 @doAction(e.action)
@@ -319,6 +445,8 @@ class BaseController
         # else
         #     window.history.go -1
 
+
+# Manages navigation on grid-like pages
 class GridController extends BaseController
 
     constructor: (HTMLSelectors) ->
@@ -327,10 +455,13 @@ class GridController extends BaseController
 
         @lists = $ @HTML.lists
 
-        @_updateList(0)
-        @_updateMovie(0)
+        # setting first list and movie
+        @_updateList 0
+        @_updateMovie 0
 
+        # register resize to row measurement
         $(window).resize @_getRowSize
+        # bind mouse hover to movie navigation
         $(@HTML.movies).mouseover @_mouseMove
 
     doAction: (action) =>
@@ -341,7 +472,9 @@ class GridController extends BaseController
             when @ACTIONS.DOWN   then @down()
             when @ACTIONS.OK     then @confirm()
             when @ACTIONS.CANCEL then @cancel()
+            else null
 
+    # measuring how many movies in a row, and how much is in last row
     _getRowSize: (event) =>
         @RowSize = 0
         for movie in @movies
@@ -352,82 +485,91 @@ class GridController extends BaseController
 
         @LastRowSize = if @movies.length % @RowSize is 0 then @RowSize else @movies.length % @RowSize
 
-    left:  => @_gridMove(-1, 0)
-    up:    => @_gridMove(0, -1)
-    down:  => @_gridMove(0, 1)
-    right: => @_gridMove(1, 0)
+    #
+    left  : => @_gridMove -1,  0
+    up    : => @_gridMove  0, -1
+    down  : => @_gridMove  0,  1
+    right : => @_gridMove  1,  0
 
+    # navigate to hoverd list and movie, running over previous list/movie
+    _mouseMove: (e) =>
+        setTimeout =>
+            newMovie = e.delegateTarget
+            # if hovering already active movie
+            return false if not $(newMovie).hasClass @HTML.movieClass.substr 1
+
+            # get the index of the selected movie
+            newListIndex  = if $(newMovie).parents(@HTML.lists) then Utils.getObjectKeyInArray @lists, $(newMovie).parents(@HTML.lists)[0]  else @listIndex
+            @_updateList newListIndex
+
+            # get the index of the selected movie
+            newMovieIndex = Utils.getObjectKeyInArray @movies, newMovie
+            @_updateMovie newMovieIndex
+
+            true
+        , 0
+        true
+
+    # navigating on lists/movies grid, one movie at-the-time
+    # calculating if next movie is in a current/previous/next list
     _gridMove: (x, y) =>
+
+        # if user movement was vertical or horizontal
         if y is 0
             axis = 'horizontal'
             newMovieIndex = @movieIndex+x
-        if x is 0
+        else if x is 0
             axis = 'vertical'
             newMovieIndex = @movieIndex+(@RowSize*y)
 
         # if new selected movie is with list boundries:
-        if @movies[newMovieIndex] then @_updateMovie(newMovieIndex)
+        if @movies[newMovieIndex] then @_updateMovie newMovieIndex
         else
-            nextList = @lists[@listIndex+1]
-            prevList = @lists[@listIndex-1]
 
             # when user moved right/down (next)
-            if @movies.length-1 < newMovieIndex and nextList? # if no more movies and there's a next list
+            if @movies.length-1 < newMovieIndex and @lists[@listIndex+1]? # if no more movies and there's a next list
                 newMovieIndex = @_nextList axis
 
             # when user moved left/up (previous)
-            else if newMovieIndex < 0 and prevList? # if new movie is negative and there's a prev list
+            else if newMovieIndex < 0 and @lists[@listIndex-1]? # if new movie is negative and there's a prev list
                 newMovieIndex = @_prevList axis
 
             # when user went to next list but there's no next list OR vice versa
-            else
-                return false
+            else return false
 
-            @_updateMovie(newMovieIndex)
+            @_updateMovie newMovieIndex
             true
 
-    _mouseMove: (e) =>
-        setTimeout =>
-            if not $(e.delegateTarget).hasClass @HTML.movieClass.substr(1)
-                return false
-
-            newListIndex = if $(e.delegateTarget).parents(@HTML.lists) then getObjectKeyInArray(@lists, $(e.delegateTarget).parents(@HTML.lists)[0]) else @listIndex
-            newMovieIndex = getObjectKeyInArray(@movies, e.delegateTarget)
-
-            @_updateList(newListIndex)
-            @_updateMovie(newMovieIndex)
-
-            return true
-        , 0
-        true
-
+    # updating to next list if needed
+    # calculating the new movie index and returning it
     _nextList: (axis) =>
         if axis is 'horizontal'
             newMovieIndex = 0 # first movie
-            @_updateList(@listIndex+1)
+            @_updateList @listIndex+1
         else if axis is 'vertical'
             if @movieIndex in [0..@movies.length-1][-@LastRowSize..] # if movie is part of last row
                 newMovieIndex = @movieIndex % @RowSize # get movie location in last row
-                @_updateList(@listIndex+1)
-                newMovieIndex
+                @_updateList @listIndex+1
             else
                 newMovieIndex = @movies.length-1 # go to last movie in the current list
-                newMovieIndex
+        newMovieIndex
 
+    # updating to prev list
+    # calculating the new movie index and returning it
     _prevList: (axis) =>
-        @_updateList(@listIndex-1)
+        @_updateList @listIndex-1
         if axis is 'horizontal'
-            @movies.length-1 # last movie
+            newMovieIndex = @movies.length-1 # last movie
         else if axis is 'vertical'
             if @LastRowSize-1 >= @movieIndex
-                newMovieIndex = [0..@movies.length-1][-@LastRowSize..][@movieIndex]
-                newMovieIndex
+                newMovieIndex = [0..@movies.length-1][-@LastRowSize..][@movieIndex] # prev row in the same movie-in-a-row position as the current movie
             else
                 newMovieIndex = @movies.length-1 # last movie
-                newMovieIndex
+        newMovieIndex
 
+    # updating list object, index and the movies array
     _updateList : (newIndex) =>
-        return if newIndex is @listIndex or isEmpty(@lists) then false
+        return if newIndex is @listIndex or _.isEmpty @lists then false
 
         oldList = if @List? then @List.Object else null
         # move marker to the new list
@@ -441,10 +583,11 @@ class GridController extends BaseController
         @_getRowSize()
 
         # init related DOM manipulation
-        DomManipulation.toggleElement('list', @List.Object, oldList)
+        DomManipulation.toggleElement 'list', @List.Object, oldList
 
+    # updating movie object, index
     _updateMovie : (newIndex) =>
-        return if newIndex is @movieIndex or isEmpty(@movies) then false
+        return if newIndex is @movieIndex or _.isEmpty @movies then false
 
         oldMovie = if @Movie? then @Movie.Object else null
         # move marker to the new movie
@@ -453,7 +596,7 @@ class GridController extends BaseController
         @Movie = new Movie @HTML, @movies, @movieIndex
 
         # init related DOM manipulation
-        DomManipulation.toggleElement('movie', @Movie.Object, oldMovie)
+        DomManipulation.toggleElement 'movie', @Movie.Object, oldMovie
 
 class HomeController extends GridController
 
@@ -468,31 +611,66 @@ class GenreController extends GridController
         super(@HTML)
 
 
-ttt = new ActionHandler
+constants = new Constants
 
 
-if window.location.pathname.match "/WiHome"
-    ttFt = new HomeController
-else if window.location.pathname.match "/WiGenre"
-    ttFt = new GenreController
+
+init = () ->
+
+    # start listening to transmitions
+    msg = new TransmissionHandler
+
+    # Infiltrating to netflix.com...
+    Utils.injectScript "js/jquery/jquery.min.js"
+    Utils.injectScript "src/inject/js/controller.js"
+
+    #
+    actionHandler = new ActionHandler
+    if window.location.pathname.match "/WiHome"
+        controller = new HomeController
+    else if window.location.pathname.match "/WiGenre"
+        controller = new GenreController
+
+    testAPI = (movieID, trackID) ->
+        deferred = Q.defer()
+
+        constants.getNetflixData().then (data) ->
+            deferred.resolve NetflixAPI.getMovieInfo movieID, trackID, false
+        , (error) ->
+            deferred.reject 0
+
+        # if typeof constants.data is 'boolean' and not constants.data
+        #     deferred.resolve NetflixAPI.getMovieInfo movieID, trackID, false
+        # else
+        #     loadedConstantsInterval = setInterval () ->
+        #         if typeof constants.data is 'boolean'
+        #             clearInterval loadedConstantsInterval
+        #             deferred.resolve NetflixAPI.getMovieInfo movieID, trackID, false if not constants.data
+        #     , 10
+
+        deferred.promise
+
+    testAPI('70180183', '13462047').fail (error) ->
+        if error is 404 or # APIKey isn't updated
+        error is 0 # Data is empty
+            msg.transmit 'MajorTom', 'NetflixHTPCConstants', 'fetch'
+
+init()
 
 
-script = document.createElement("script")
-script.src = chrome.extension.getURL "js/jquery/jquery.min.js"
-document.head.appendChild(script)
-
-script = document.createElement("script")
-script.src = chrome.extension.getURL "src/inject/js/controller.js"
-document.head.appendChild(script)
 
 
-window.addEventListener 'message',  (event) ->
-    if event.data.type == 'sync_get'
-        console.log event
-        window.postMessage({ type: "sync_get_response", items: 'items' }, '*')
 
 
-msg = new TransmissionHandler
+
+
+# window.addEventListener 'message',  (event) ->
+#     if event.data.type == 'sync_get'
+#         console.log event
+#         window.postMessage({ type: "sync_get_response", items: 'items' }, '*')
+
+
+
 
 # window.addEventListener("message", receiveMessage, false);
 # window.addEventListener("message", receiveMessage1);

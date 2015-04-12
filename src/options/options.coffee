@@ -5,6 +5,32 @@ alertMsgs = {
     duplicate_shortcut:  "<strong>Great Scott!</strong> Looks some of your shortcuts are duplicates."
 }
 inputs = []
+supportGamepad = false
+
+carouselNormalization = ->
+    items = $ '#shortcuts-carousel .item' #grab all slides
+    heights = [] #create empty array to store height values
+    tallest = 0 #create variable to make note of the tallest slide
+
+    if items.length
+        normalizeHeights = ->
+            items.each () -> # add heights to array
+                heights.push($(this).height())
+
+            tallest = Math.max.apply null, heights #cache largest value
+            items.each () ->
+                $(this).css 'min-height',tallest + 'px'
+
+
+        normalizeHeights()
+
+        $(window).on 'resize orientationchange',  () ->
+            tallest = 0
+            heights.length = 0 #reset vars
+            items.each () ->
+                $(this).css('min-height','0') #reset min-height
+            normalizeHeights() #run it again
+
 capitalizeFirstLetter = (string) ->
     string.charAt(0).toUpperCase() + string.slice(1)
 
@@ -90,7 +116,7 @@ set = ->
 
 # Restores select box and checkbox state using the preferences
 # stored in chrome.storage.
-get = ->
+getChromeStorage = ->
     for input in inputs
         shortcuts[$(input).attr('name')] = $(input).val()
 
@@ -99,13 +125,52 @@ get = ->
             $(input).val(items[$(input).attr('name')])
         $('body').removeClass 'loading'
 
+initGamepad = ->
+    gamepad = new Gamepad()
+
+    if not gamepad.init()
+        return
+
+    $('.no-gamepad-support').addClass 'hidden'
+    $('.gamepad-support').removeClass 'hidden'
+
+    $('.gamepad-status-disconnected').removeClass 'hidden'
+
+    gamepad.bind Gamepad.Event.CONNECTED, (device) ->
+        console.log "CONNECTED", device
+        $('.gamepad-status').addClass 'hidden'
+        $('.gamepad-status-connected').removeClass 'hidden'
+
+    gamepad.bind Gamepad.Event.DISCONNECTED, (device) ->
+        console.log "DISCONNECTED", device
+        $('.gamepad-status').addClass 'hidden'
+        $('.gamepad-status-disconnected').removeClass 'hidden'
+
+
+    gamepad.bind Gamepad.Event.UNSUPPORTED, (device) ->
+        console.log "UNSUPPORTED", device
+        $('.gamepad-status').addClass 'hidden'
+        $('.gamepad-status-unsupported').removeClass 'hidden'
+
+
+    gamepad.bind Gamepad.Event.BUTTON_DOWN, (e) ->
+        console.log "BUTTON_DOWN", e
+    gamepad.bind Gamepad.Event.BUTTON_UP, (e) ->
+        console.log "BUTTON_UP", e
+    gamepad.bind Gamepad.Event.AXIS_CHANGED, (e) ->
+        console.log "AXIS_CHANGED", e
+
+    supportGamepad = not not gamepad.init()
+
 $( document ).ready ->
     inputs = $("form#shortcuts input[type='text']")
     ###
     Init Components
     ###
-    get() # Get saved Shortcuts
+    initGamepad()
+    getChromeStorage() # Get saved Shortcuts
     $('[data-toggle="tooltip"]').tooltip() # init bootstarp tooltips
+    carouselNormalization() # fix bootstrap carousel height problem
 
     ###
     Register Event Handlers

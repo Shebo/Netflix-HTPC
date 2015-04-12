@@ -1,5 +1,37 @@
 
 
+class Utils
+
+    @rawAjax: (url, callback) ->
+        request = new XMLHttpRequest()
+        request.open 'GET', url, true
+
+        request.onload = () ->
+          if request.status >= 200 && request.status < 400
+            callback request.responseText
+
+        request.send()
+
+    @parseURL: (url) ->
+        parser       = document.createElement('a')
+        searchObject = {}
+        parser.href  = url
+        queries      = parser.search.replace(/^\?/, '').split '&'
+
+        for query in queries
+            split = query.split('=')
+            searchObject[split[0]] = split[1]
+
+        object =
+            protocol     : parser.protocol,
+            host         : parser.host,
+            hostname     : parser.hostname,
+            port         : parser.port,
+            pathname     : parser.pathname,
+            search       : parser.search,
+            searchObject : searchObject,
+            hash         : parser.hash
+
 # readyStateCheckInterval = setInterval () ->
 #     if document.readyState is "complete"
 #         clearInterval readyStateCheckInterval
@@ -92,46 +124,128 @@ Parts:
 
 ###
 
-Home =
-    AuthURL : netflix.contextData.userInfo.data.authURL
-    getMovieData: netflix.contextData.serverDefs
+# Home =
+#     AuthURL : netflix.contextData.userInfo.data.authURL
+#     getMovieData: netflix.contextData.serverDefs
 
-Genre =
-    AuthURL : netflix.contextData.userInfo.data.authURL
-
-
+# Genre =
+#     AuthURL : netflix.contextData.userInfo.data.authURL
 
 class EventHandler
-
     constructor: ->
-    dispatch: (action) =>
+    dispatch: (type, action, info = undefined) =>
+        # safe dispatch - dispatch event only after jQuery ($ object) is loaded
+        if $? then @_safeDispatch(type, action, info)
+        else
+            dispatchInterval = setInterval () ->
+                if $?
+                    clearInterval dispatchInterval
+                    @_safeDispatch(type, action, info)
+            , 10
+
+    _safeDispatch: (type, action, info) =>
         $.event.trigger
-            type: "NetflixHTPC"
-            action: action
+            type   : type
+            action : action
+            info   : info
         false
 
 class TransmissionHandler extends EventHandler
 
     constructor: ->
         @source = 'MajorTom'
-        @target = 'GroundControl'
+        # @types = ['request', 'response']
+
+        # @target = 'GroundControl'
 
         window.addEventListener 'message', @_recieve
         # window.addEventListener 'message', (e) =>
         #     @_recieveMessage(e)
 
-    transmit: (message, action) =>
-        # action = action || {}
+    transmit: (target, type, action, data = null) =>
         window.postMessage
-            source: @source
-            target: @target
-            action: action
+            sender    : @source
+            recipient : target
+            action    : action
+            type      : type
+            data      : data
             , '*'
 
     _recieve: (event) =>
-        if event.data.source is @target
-            console.log event
-            @dispatch(event.data.action)
+        msg = event.data
+
+        @dispatch msg.type, msg.action, msg.data
+        if msg.recipient is @source
+            if msg.type is 'NetflixHTPCConstants' and msg.action is 'fetch'
+                fetchConstants()
+
+            # if msg.type is 'request'
+            #     @transmit msg.from, 'response', InjectedAPI[msg.action]()
+            # else if msg.type is 'response'
+            #     console.log 'response'
+
+
+
+pagesTypes  =
+    home   : "WiHome"
+    genre  : "WiGenre"
+    movie  : "WiMovie"
+    player : "WiPlayer"
+    player : "WiPlayer"
+    search : "WiSearch"
+    role   : "WiRoleDisplay"
+
+class NetflixData
+
+    constructor: ->
+        @obj =
+            domain   : 'www.netflix.com'
+            pages    : pagesTypes
+
+class NetflixHomeData extends NetflixData
+
+    constructor: ->
+        super
+        @obj.isSecure = netflix.XSRFSafeLink.isSecure()
+        @obj.authURL  = netflix.XSRFSafeLink.getXsrfToken()
+        @_initServerDefs()
+
+    _initServerDefs : =>
+        url = Utils.parseURL document.getElementById("instantSearchTemplate").innerHTML.match(/<a\s+(?:[^>]*?\s+)?href="([^"]*)"/i)[1]
+        Utils.rawAjax "#{if @obj.isSecure then "https" else "http"}://#{@obj.domain}/#{@obj.pages.genre}?agid=#{url.searchObject.agid}", (request) =>
+            serverDefs      = /"serverDefs":{"data":({.*?}),"/gi
+            @obj.serverDefs = JSON.parse serverDefs.exec(request)[1]
+            @obj.APIRoot    = @obj.serverDefs.SHAKTI_API_ROOT.replace("#{if @obj.isSecure then "https" else "http"}://#{@obj.domain}/", "")
+            @obj.APIKey     = @obj.serverDefs.BUILD_IDENTIFIER
+
+class NetflixInnerData extends NetflixData
+
+    constructor: ->
+        super
+        @obj.isSecure   = location.protocol is "https:"
+        @obj.authURL    = netflix.contextData.userInfo.data.authURL
+        @obj.serverDefs = netflix.contextData.serverDefs
+        @obj.APIRoot    = @obj.serverDefs.SHAKTI_API_ROOT
+        @obj.APIKey     = @obj.serverDefs.BUILD_IDENTIFIER
+
+
+
+msg = new TransmissionHandler
+
+if window.location.pathname.match "WiHome"
+    netflixData = new NetflixHomeData
+else if window.location.pathname.match "WiGenre"
+    netflixData = new NetflixInnerData
+
+
+fetchConstants = ->
+    dataFetcherInterval = setInterval () ->
+        if netflixData.obj.serverDefs
+            clearInterval dataFetcherInterval
+            msg.transmit 'GroundControl', 'NetflixHTPCConstants', 'update', netflixData.obj
+    , 10
+
+#
 
   # window.addEventListener("message", on_message);
   # on_message = (e) ->
@@ -145,10 +259,12 @@ class TransmissionHandler extends EventHandler
 
 jQuery(document).ready ($) ->
 
+
+
+
     # console.log netflix
 
-    console.log Requireify._registry['js/utils/urls.js'].exports.getTitleUrl('Paycheck')
-
+    # console.log Requireify._registry['js/utils/urls.js'].exports.getTitleUrl('Paycheck')
 
     eventsss =
         EVENT_TERM_CHANGED : "instantSearchTermChanged"
@@ -190,29 +306,6 @@ jQuery(document).ready ($) ->
         , false
         $(document).on v, (e) =>
             console.log e
-
-
-
-    msg = new TransmissionHandler
-    setTimeout ->
-        # tell('test', {a:1,b:2})
-        msg.transmit('test', {a:1,b:2})
-        # window.postMessage { type: "sync_get", data: {'ddd': 'eee'} }, '*'
-
-        # tell('myMsg', "The user is 'bob' and the password is 'secret'")
-        # # postMessage("The user is 'bob' and the password is 'secret'", 'www.netflix.com')
-        # # window.postMessage("The user is 'bob' and the password is 'secret'", 'www.netflix.com')
-
-        # $.event.trigger
-        #     type: "NetflixHTPC"
-        #     action: 'right'
-        # $(document).trigger
-        #     type: "NetflixHTPC"
-        #     action: 'down'
-        # $(window).trigger
-        #     type: "NetflixHTPC"
-        #     action: 'left'
-    , 5000
 
 
     # $(document).on netflix.sliders.htmlReadyEvent, (e) =>

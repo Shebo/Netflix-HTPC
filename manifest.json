@@ -39,10 +39,12 @@
       ],
       "js": [
         "js/jquery/jquery.min.js",
+        "js/q.js",
         "js/underscore-min.js",
         "js/event.simulate.js",
         "js/jquery.simulate.js",
         "js/keyboard.js",
+        "js/gamepad.js",
         "js/arrive.min.js",
         "src/inject/js/class.js",
         "src/inject/js/inject.js"
