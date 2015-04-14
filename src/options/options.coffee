@@ -61,7 +61,7 @@ clearInput = () ->
 
 alert = (type, msg) ->
     msg = type if not msg
-    $('.alert-wrapper').prepend("<div class='alert alert-"+type+" alert-dismissable fade in'>\
+    $('.alert-wrapper').prepend("<div class='alert alert-"+type+" alert-dismissable center-block top in animated slideInDown'>\
         <button type='button' class='close' aria-label='Close' data-dismiss='alert'><span aria-hidden='true'>&times;</span></button>\
         <span>"+alertMsgs[msg]+"</span>\
     </div>")
@@ -113,6 +113,8 @@ set = ->
         $('#save').button 'reset'
         alert 'success'
 
+setMode = (event) ->
+    chrome.storage.sync.set {navMode: $(this).children('input').attr('id')}
 
 # Restores select box and checkbox state using the preferences
 # stored in chrome.storage.
@@ -163,7 +165,7 @@ initGamepad = ->
     supportGamepad = not not gamepad.init()
 
 $( document ).ready ->
-    inputs = $("form#shortcuts input[type='text']")
+    inputs = $(".keyboard-input")
     ###
     Init Components
     ###
@@ -175,6 +177,7 @@ $( document ).ready ->
     ###
     Register Event Handlers
     ###
-    $('ul li input').on 'keydown', update # register pressed keys
-    $('form#shortcuts').submit validate # save inputs to chrome
+    inputs.on 'keydown', update # register pressed keys
+    $(".mode-btns .btn").click setMode # save inputs to chrome
+    $('form').submit validate # save inputs to chrome
     $('.clear-input').click clearInput # delete input value

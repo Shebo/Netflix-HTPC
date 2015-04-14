@@ -197,7 +197,7 @@
       msg = event.data;
       this.dispatch(msg.type, msg.action, msg.data);
       if (msg.recipient === this.source) {
-        if (msg.type === 'NetflixHTPCConstants' && msg.action === 'fetch') {
+        if (msg.type === 'OSN:Constants' && msg.action === 'fetch') {
           return fetchConstants();
         }
       }
@@ -287,7 +287,7 @@
     return dataFetcherInterval = setInterval(function() {
       if (netflixData.obj.serverDefs) {
         clearInterval(dataFetcherInterval);
-        return msg.transmit('GroundControl', 'NetflixHTPCConstants', 'update', netflixData.obj);
+        return msg.transmit('GroundControl', 'OSN:Constants', 'update', netflixData.obj);
       }
     }, 10);
   };

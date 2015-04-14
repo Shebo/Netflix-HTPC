@@ -155,7 +155,7 @@ class ActionHandler extends EventHandler
     # every action in the callback that under a loop - get's overriden by the last action
     _bindShortcuts: (action, combo) =>
         KeyboardJS.on combo, (e) =>
-            @dispatch 'NetflixHTPCControl', action if @isAllowed
+            @dispatch 'OSN:Controls', action if @isAllowed
 
 # handling all transmissions between seperated scripts
 class TransmissionHandler extends EventHandler
@@ -185,7 +185,7 @@ class TransmissionHandler extends EventHandler
             #     @transmit msg.from, 'response', @[msg.action]()
             # else if msg.type is 'response'
             #     console.log 'response'
-            # else if msg.type is 'NetflixHTPCConstants'
+            # else if msg.type is 'OSN:Constants'
             #     @dispatch(msg.type, 'update', msg.data)
 
 
@@ -201,7 +201,7 @@ class Constants
             console.log 'no consts'
             @data = false
 
-        $(document).on "NetflixHTPCConstants", (e) =>
+        $(document).on "OSN:Constants", (e) =>
             if e.action is 'update'
                 @setNetflixData JSON.stringify(e.info), () => @saveNetflixData JSON.stringify(e.info)
 
@@ -420,7 +420,7 @@ class BaseController
             OK     : 'ok'
             CANCEL : 'cancel'
 
-        $(document).on "NetflixHTPCControl", (e) =>
+        $(document).on "OSN:Controls", (e) =>
             setTimeout =>
                 console.log "jquery event:", e
                 @doAction(e.action)
@@ -653,7 +653,7 @@ init = () ->
     testAPI('70180183', '13462047').fail (error) ->
         if error is 404 or # APIKey isn't updated
         error is 0 # Data is empty
-            msg.transmit 'MajorTom', 'NetflixHTPCConstants', 'fetch'
+            msg.transmit 'MajorTom', 'OSN:Constants', 'fetch'
 
 init()
 

@@ -164,7 +164,7 @@
       return KeyboardJS.on(combo, (function(_this) {
         return function(e) {
           if (_this.isAllowed) {
-            return _this.dispatch('NetflixHTPCControl', action);
+            return _this.dispatch('OSN:Controls', action);
           }
         };
       })(this));
@@ -226,7 +226,7 @@
           return _this.data = false;
         };
       })(this));
-      $(document).on("NetflixHTPCConstants", (function(_this) {
+      $(document).on("OSN:Constants", (function(_this) {
         return function(e) {
           if (e.action === 'update') {
             return _this.setNetflixData(JSON.stringify(e.info), function() {
@@ -553,7 +553,7 @@
         OK: 'ok',
         CANCEL: 'cancel'
       };
-      $(document).on("NetflixHTPCControl", (function(_this) {
+      $(document).on("OSN:Controls", (function(_this) {
         return function(e) {
           return setTimeout(function() {
             console.log("jquery event:", e);
@@ -827,7 +827,7 @@
     };
     return testAPI('70180183', '13462047').fail(function(error) {
       if (error === 404 || error === 0) {
-        return msg.transmit('MajorTom', 'NetflixHTPCConstants', 'fetch');
+        return msg.transmit('MajorTom', 'OSN:Constants', 'fetch');
       }
     });
   };

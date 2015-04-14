@@ -1,8 +1,8 @@
 {
-  "name": "Netflix HTPC",
+  "name": "Oh Snap, Netflix!",
   "version": "0.0.1",
   "manifest_version": 2,
-  "description": "Use Netflix as an HTPC friendly website, controlled by your weapon of choice",
+  "description": "Use Netflix in the snap of your fingers! A TV friendly website, controlled by your weapon of choice",
   // "homepage_url": "",
   "icons": {
     "16": "icons/icon16.png",

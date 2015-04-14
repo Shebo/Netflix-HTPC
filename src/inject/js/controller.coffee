@@ -176,7 +176,7 @@ class TransmissionHandler extends EventHandler
 
         @dispatch msg.type, msg.action, msg.data
         if msg.recipient is @source
-            if msg.type is 'NetflixHTPCConstants' and msg.action is 'fetch'
+            if msg.type is 'OSN:Constants' and msg.action is 'fetch'
                 fetchConstants()
 
             # if msg.type is 'request'
@@ -242,7 +242,7 @@ fetchConstants = ->
     dataFetcherInterval = setInterval () ->
         if netflixData.obj.serverDefs
             clearInterval dataFetcherInterval
-            msg.transmit 'GroundControl', 'NetflixHTPCConstants', 'update', netflixData.obj
+            msg.transmit 'GroundControl', 'OSN:Constants', 'update', netflixData.obj
     , 10
 
 #

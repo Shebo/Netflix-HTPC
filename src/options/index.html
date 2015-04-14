@@ -52,7 +52,10 @@
             }
 
             .alert {
-
+                border-radius : 0;
+                margin-bottom : 0;
+                width         : 40%;
+                box-sizing    : border-box;
             }
         </style>
     </head>
@@ -60,6 +63,7 @@
         <nav class="navbar navbar-inverse navbar-fixed-top">
             <div class="container-fluid">
                 <a class="navbar-brand" href="#">Netflix HTPC Settings</a>
+                <div class="alert-wrapper"></div>
             </div>
         </nav>
         <div class="container-fluid">
@@ -78,14 +82,18 @@
 
 
                     <div id="shortcuts-carousel" class="carousel slide">
-                        <div class="btn-group" data-toggle="buttons">
+                        <div class="btn-group modes-btns" data-toggle="buttons">
                             <label class="btn btn-default active" data-target="#shortcuts-carousel" data-slide-to="0">
                                 <i class="fa fa-keyboard-o"></i>
-                                <input type="radio" name="weapons" id="keyboard" autocomplete="off" checked> Kayboard
+                                <input type="radio" name="mode" id="keyboard" autocomplete="off" checked> Kayboard
                             </label>
                             <label class="btn btn-default" data-target="#shortcuts-carousel" data-slide-to="1">
                                 <i class="fa fa-gamepad"></i>
-                                <input type="radio" name="weapons" id="gamepad" autocomplete="off"> Gamepad
+                                <input type="radio" name="mode" id="gamepad" autocomplete="off"> Gamepad
+                            </label>
+                            <label class="btn btn-default" data-target="#shortcuts-carousel" data-slide-to="2">
+                                <!-- <i class="fa fa-gamepad"></i> -->
+                                <input type="radio" name="mode" id="gamepad" autocomplete="off"> Mouse
                             </label>
                         </div>
                         <div class="carousel-inner" role="listbox">
@@ -102,7 +110,7 @@
                                             <label for="up" class="col-sm-1 control-label text-capitalize">up</label>
                                             <div class="col-sm-3">
                                                 <div class="input-group">
-                                                    <input type="text" name="up" class="form-control text-capitalize" value="up" />
+                                                    <input type="text" name="up" class="keyboard-input form-control text-capitalize" value="up" />
                                                     <span class="input-group-btn">
                                                         <button class="clear-input btn btn-danger" type="button" data-toggle="tooltip" data-placement="top" title="Clear">
                                                             <span class="glyphicon glyphicon-remove" aria-label="Clear"></span>
@@ -115,7 +123,7 @@
                                             <label for="down" class="col-sm-1 control-label text-capitalize">down</label>
                                             <div class="col-sm-3">
                                                 <div class="input-group">
-                                                    <input type="text" name="down" class="form-control text-capitalize" value="down" />
+                                                    <input type="text" name="down" class="keyboard-input form-control text-capitalize" value="down" />
                                                     <span class="input-group-btn">
                                                         <button class="clear-input btn btn-danger" type="button" data-toggle="tooltip" data-placement="top" title="Clear">
                                                             <span class="glyphicon glyphicon-remove" aria-label="Clear"></span>
@@ -128,7 +136,7 @@
                                             <label for="left" class="col-sm-1 control-label text-capitalize">left</label>
                                             <div class="col-sm-3">
                                                 <div class="input-group">
-                                                    <input type="text" name="left" class="form-control text-capitalize" value="left" />
+                                                    <input type="text" name="left" class="keyboard-input form-control text-capitalize" value="left" />
                                                     <span class="input-group-btn">
                                                         <button class="clear-input btn btn-danger" type="button" data-toggle="tooltip" data-placement="top" title="Clear">
                                                             <span class="glyphicon glyphicon-remove" aria-label="Clear"></span>
@@ -141,7 +149,7 @@
                                             <label for="right" class="col-sm-1 control-label text-capitalize">right</label>
                                             <div class="col-sm-3">
                                                 <div class="input-group">
-                                                    <input type="text" name="right" class="form-control text-capitalize" value="right" />
+                                                    <input type="text" name="right" class="keyboard-input form-control text-capitalize" value="right" />
                                                     <span class="input-group-btn">
                                                         <button class="clear-input btn btn-danger" type="button" data-toggle="tooltip" data-placement="top" title="Clear">
                                                             <span class="glyphicon glyphicon-remove" aria-label="Clear"></span>
@@ -154,7 +162,7 @@
                                             <label for="ok" class="col-sm-1 control-label text-capitalize">ok</label>
                                             <div class="col-sm-3">
                                                 <div class="input-group">
-                                                    <input type="text" name="ok" class="form-control text-capitalize" value="ok" />
+                                                    <input type="text" name="ok" class="keyboard-input form-control text-capitalize" value="ok" />
                                                     <span class="input-group-btn">
                                                         <button class="clear-input btn btn-danger" type="button" data-toggle="tooltip" data-placement="top" title="Clear">
                                                             <span class="glyphicon glyphicon-remove" aria-label="Clear"></span>
@@ -167,7 +175,7 @@
                                             <label for="cancel" class="col-sm-1 control-label text-capitalize">cancel</label>
                                             <div class="col-sm-3">
                                                 <div class="input-group">
-                                                    <input type="text" name="cancel" class="form-control text-capitalize" value="cancel" />
+                                                    <input type="text" name="cancel" class="keyboard-input form-control text-capitalize" value="cancel" />
                                                     <span class="input-group-btn">
                                                         <button class="clear-input btn btn-danger" type="button" data-toggle="tooltip" data-placement="top" title="Clear">
                                                             <span class="glyphicon glyphicon-remove" aria-label="Clear"></span>
@@ -179,9 +187,6 @@
                                         <li class="form-group">
                                             <div class="col-sm-offset-1 col-sm-2">
                                                 <button id="save" type="submit" class="btn btn-primary btn-md" data-loading-text="Saving...">Save Options</button>
-                                            </div>
-                                            <div class="col-sm-6">
-                                                <div class="alert-wrapper"></div>
                                             </div>
                                         </li>
                                     </ul>
