@@ -1,0 +1,52 @@
+{
+  "name": "__MSG_appName__",
+  "version": "0.0.1",
+  "manifest_version": 2,
+  "description": "__MSG_appDescription__",
+  "icons": {
+    "16": "images/icon-16.png",
+    "128": "images/icon-128.png"
+  },
+  "default_locale": "en",
+  "background": {
+    "scripts": [
+      "scripts/chromereload.js",
+      "scripts/background.js"
+    ]
+  },
+  "options_page": "options.html",
+  "permissions": [
+    "*://www.netflix.com/*",
+    "*://www.google.co.il/*",
+    "storage"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "*://www.google.co.il/*",
+        "*://www.netflix.com/*"
+      ],
+      "css": [
+        "styles/main.css"
+      ],
+      "js": [
+        // dev version:
+        "bower_components/requirejs/require.js",
+        // "contentscript_config.js",
+        "scripts/require-cs.js",
+        "scripts/contentscript_src.js"
+        // dist version:
+        // "scripts/contentscript.js"
+      ],
+      "run_at": "document_end",
+      "all_frames": false
+    }
+  ],
+  "web_accessible_resources": [
+    "scripts/*",
+    "bower_components/*"
+  ],
+  "externally_connectable": {
+    "matches": ["*://*.netflix.com/*"]
+  }
+}
