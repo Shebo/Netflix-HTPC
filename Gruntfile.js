@@ -35,11 +35,18 @@ module.exports = function (grunt) {
       coffee: {
         files: ['<%= config.app %>/coffee/**/*.{coffee,litcoffee,coffee.md}'],
         // files: ['<%= config.app %>/scripts/{,*/}*.{coffee,litcoffee,coffee.md}'],
-        tasks: ['coffee:chrome'],
+        tasks: ['coffee:chrome', 'chromesourceurl:chrome'],
         options: {
+          spawn: false,
           livereload: '<%= connect.options.livereload %>'
         }
       },
+
+      // sourceurl: {
+      //   files: ['<%= config.app %>/coffee/**/*.{coffee,litcoffee,coffee.md}'],
+      //   // files: ['<%= config.app %>/scripts/{,*/}*.{coffee,litcoffee,coffee.md}'],
+      //   tasks: ['sourceurl:chrome']
+      // },
       // requirejs_contentscript: {
       //   files: ['<%= config.app %>/{,*/}*.js', '!<%= config.app %>/scripts/contentscript_src.js'],
       //   tasks: ['requirejs:chrome'],
@@ -121,6 +128,20 @@ module.exports = function (grunt) {
           message: 'Server is ready!'
         }
       }
+    },
+
+    // sourceurl: {
+    //   chrome: {
+    //     src: '<%= config.app %>/scripts/**/*',
+    //     basePath: '<%= config.app %>/scripts'  // all the sourceURLs will be relative to this directory
+    //   },
+    // },
+
+    chromesourceurl: {
+      chrome: {
+        src: '<%= config.app %>/scripts/**/*',
+        basePath: '<%= config.app %>/scripts'  // all the sourceURLs will be relative to this directory
+      },
     },
 
     // Grunt server and debug server setting
@@ -393,6 +414,35 @@ module.exports = function (grunt) {
     }
   });
 
+  // adding sourceUrl comment to js files
+  grunt.registerMultiTask('chromesourceurl', 'Appends a //@ sourceURL=... comment to source files that will survive compilation and source maps', function() {
+    var path = require('path');
+    var that = this;
+    this.files.forEach(function(file) {
+
+      //file.src is the list of all matching file names.
+      file.src.forEach(function(src){
+
+        // var sourceUrl = path.relative(that.data.basePath, src);
+        // var sourceUrl = path.basename(src);
+        var sourceUrl = src;
+
+        // sourceUrl = "\n###\n//@ sourceURL=#{sourceUrl}\n###"
+
+        sourceUrl = "\n//# sourceURL="+sourceUrl;
+        var ext   = path.extname(src);
+
+        if (ext === '.js'){
+          var content     = grunt.file.read(src);
+          // write sourceUrl comment to all js files without it
+          if (content.indexOf(sourceUrl) === -1){
+            grunt.file.write(src, grunt.file.read(src) + sourceUrl);
+          }
+        }
+      });
+    });
+  });
+
   grunt.registerTask('debug', function () {
     grunt.task.run([
       'jshint',
@@ -430,5 +480,6 @@ module.exports = function (grunt) {
 
   grunt.loadNpmTasks('grunt-contrib-requirejs');
   grunt.loadNpmTasks('grunt-notify');
+  // grunt.loadNpmTasks('grunt-coffeescript-sourceurl');
 
 };
