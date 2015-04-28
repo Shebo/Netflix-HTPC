@@ -36,4 +36,3 @@ define ["jquery", 'modules/selectors/base_selectors'], ($, BaseSelectors) ->
             $(HTML.HTMLAndBody).stop().animate
                 scrollTop: scrollPosition
             , 300
-

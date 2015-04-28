@@ -1,39 +1,36 @@
 (function() {
   'use strict';
-  var __bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; };
-
-  define(["jquery"], function($) {
+  define([], function() {
     var EventHandler;
     return EventHandler = (function() {
-      function EventHandler() {
-        this._safeDispatch = __bind(this._safeDispatch, this);
-        this.dispatch = __bind(this.dispatch, this);
-      }
+      function EventHandler() {}
 
-      EventHandler.prototype.dispatch = function(type, action, info) {
-        var dispatchInterval;
-        if (info == null) {
-          info = void 0;
-        }
-        if ($ != null) {
-          return this._safeDispatch(type, action, info);
-        } else {
-          return dispatchInterval = setInterval(function() {
-            if ($ != null) {
-              clearInterval(dispatchInterval);
-              return this._safeDispatch(type, action, info);
-            }
-          }, 10);
-        }
+      EventHandler.fire = function(type, msg) {
+        var evt;
+        evt = new CustomEvent(type, {
+          detail: msg
+        });
+        document.dispatchEvent(evt);
+        return false;
       };
 
-      EventHandler.prototype._safeDispatch = function(type, action, info) {
-        $.event.trigger({
-          type: type,
-          action: action,
-          info: info
+      EventHandler.on = function(type, callback) {
+        document.addEventListener(type, function(e) {
+          var eventData;
+          eventData = e.detail ? e.detail : e.data;
+          return callback(eventData);
         });
-        return false;
+      };
+
+      EventHandler.off = function(type, callback) {
+        document.removeEventListener(type, callback);
+      };
+
+      EventHandler.one = function(type, callback) {
+        EventHandler.on(type, function(e) {
+          EventHandler.off(type, callback);
+          return callback(e);
+        });
       };
 
       return EventHandler;

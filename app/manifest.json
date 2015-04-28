@@ -33,8 +33,8 @@
         // dev version:
         "bower_components/requirejs/require.js",
         // "contentscript_config.js",
-        "scripts/require-cs.js",
-        "scripts/contentscript_src.js"
+        // "scripts/require-cs.js",
+        "scripts/contentscript.js"
         // dist version:
         // "scripts/contentscript.js"
       ],

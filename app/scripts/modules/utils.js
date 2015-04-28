@@ -1,5 +1,7 @@
 (function() {
   'use strict';
+  var __indexOf = [].indexOf || function(item) { for (var i = 0, l = this.length; i < l; i++) { if (i in this && this[i] === item) return i; } return -1; };
+
   define(["q"], function(Q) {
     var Utils;
     return Utils = (function() {
@@ -27,11 +29,40 @@
         return true;
       };
 
+      Utils.getUniqueId = function() {
+        return Date.now();
+      };
+
+      Utils.verifyObjectByMap = function(obj, arr) {
+        var key, value;
+        for (key in obj) {
+          value = obj[key];
+          if (_.isObject(value)) {
+            if (__indexOf.call(_.keys(arr), key) >= 0) {
+              arr[key] = this.verifyObjectByMap(value, arr[key]);
+              if (_.isEmpty(arr[key])) {
+                delete arr[key];
+              }
+            }
+          } else {
+            if (__indexOf.call(arr, key) >= 0) {
+              arr = _.without(arr, key);
+            }
+          }
+        }
+        return _.isEmpty(arr);
+      };
+
       Utils.injectScript = function(path) {
-        var script;
+        var deferred, script;
+        deferred = Q.defer();
         script = document.createElement("script");
         script.src = chrome.extension.getURL(path);
-        return document.head.appendChild(script);
+        script.onload = function() {
+          return deferred.resolve(true);
+        };
+        document.head.appendChild(script);
+        return deferred.promise;
       };
 
       Utils.rawAjax = function(url) {

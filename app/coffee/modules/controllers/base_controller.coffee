@@ -1,6 +1,7 @@
 'use strict'
 
-define ["jquery"], ($) ->
+define ["jquery", 'modules/handlers/event_handler'], ($, EventHandler) ->
+
     # abstract class for navigation
     class BaseController
 
@@ -13,11 +14,12 @@ define ["jquery"], ($) ->
                 OK     : 'ok'
                 CANCEL : 'cancel'
 
-            $(document).on "OSN:Controls", (e) =>
-                setTimeout =>
-                    console.log "jquery event:", e
-                    @doAction(e.action)
-                , 0
+            # $(document).on "OSN:Controls", (e) =>
+            EventHandler.on "OSN:Controls", (e) =>
+                # setTimeout =>
+                console.log "jquery event:", e
+                @doAction(e.action)
+                # , 0
 
         doAction: (action) =>
             console.log "Do #{action}"

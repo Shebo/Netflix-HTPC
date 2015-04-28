@@ -1,4 +1,6 @@
-'use strict';
+'use strict'
+
+console.log 'we\'re in.'
 
 class Utils
 
@@ -11,6 +13,9 @@ class Utils
             callback request.responseText
 
         request.send()
+
+    @getUniqueId: () ->
+        Date.now()
 
     @parseURL: (url) ->
         parser       = document.createElement('a')
@@ -132,58 +137,64 @@ Parts:
 #     AuthURL : netflix.contextData.userInfo.data.authURL
 
 class EventHandler
-    constructor: ->
-    dispatch: (type, action, info = undefined) =>
-        # safe dispatch - dispatch event only after jQuery ($ object) is loaded
-        if $? then @_safeDispatch(type, action, info)
-        else
-            dispatchInterval = setInterval () ->
-                if $?
-                    clearInterval dispatchInterval
-                    @_safeDispatch(type, action, info)
-            , 10
 
-    _safeDispatch: (type, action, info) =>
-        $.event.trigger
-            type   : type
-            action : action
-            info   : info
+    @fire: (type, msg) =>
+        evt = new CustomEvent type, { detail: msg }
+        document.dispatchEvent evt
         false
 
+    @on  : (type, callback) ->
+        document.addEventListener type, (e) ->
+            eventData = if e.detail then e.detail else e.data
+            callback eventData
+        return
+    @off : (type, callback) ->
+        document.removeEventListener type, callback
+        return
+    @one : (type, callback) =>
+        @on type, (e) =>
+            @off type, callback
+            callback e
+        return
+
+
+# handling all transmissions between seperated scripts
 class TransmissionHandler extends EventHandler
+    @source = 'Neo'
 
-    constructor: ->
-        @source = 'MajorTom'
-        # @types = ['request', 'response']
-
-        # @target = 'GroundControl'
-
-        window.addEventListener 'message', @_recieve
-        # window.addEventListener 'message', (e) =>
-        #     @_recieveMessage(e)
-
-    transmit: (target, type, action, data = null) =>
+    @_transmit: (recipient, type, data, uniqueId) =>
+        console.log "#{@source}: Transmission is out", {recipient: recipient, type: type, data: data, uniqueId: uniqueId}
         window.postMessage
+            uniqueId  : uniqueId
             sender    : @source
-            recipient : target
-            action    : action
+            recipient : recipient
             type      : type
             data      : data
             , '*'
 
-    _recieve: (event) =>
-        msg = event.data
+    @_recieve: (event) =>
+        if event.data.recipient is @source
+            console.log "#{@source}: Transmission Recieved over", event
+            @fire event.data.type, event.data
 
-        @dispatch msg.type, msg.action, msg.data
-        if msg.recipient is @source
-            if msg.type is 'OSN:Constants' and msg.action is 'fetch'
-                fetchConstants()
+    # @sendWait: (recipient, type, data=null, uniqueId=Utils.getUniqueId()) =>
+    #     deferred = Q.defer()
 
-            # if msg.type is 'request'
-            #     @transmit msg.from, 'response', InjectedAPI[msg.action]()
-            # else if msg.type is 'response'
-            #     console.log 'response'
+    #     @_transmit recipient, type, data, uniqueId
 
+    #     @on window, 'message', (event) =>
+    #         if event.recipient is @source and event.uniqueId is uniqueId
+    #             @off window, 'message', arguments.callee
+    #             console.log "message came back to #{@source}", event
+    #             deferred.resolve event
+
+    #     deferred.promise
+
+    @sendForget: (recipient, type, data=null, uniqueId=Utils.getUniqueId()) =>
+        @_transmit recipient, type, data, uniqueId
+        uniqueId
+
+    window.addEventListener 'message', @_recieve
 
 
 pagesTypes  =
@@ -230,20 +241,12 @@ class NetflixInnerData extends NetflixData
 
 
 
-msg = new TransmissionHandler
+# msg = new TransmissionHandler
 
-if window.location.pathname.match "WiHome"
+if window.location.pathname.match pagesTypes.home
     netflixData = new NetflixHomeData
-else if window.location.pathname.match "WiGenre"
+else if window.location.pathname.match pagesTypes.genre
     netflixData = new NetflixInnerData
-
-
-fetchConstants = ->
-    dataFetcherInterval = setInterval () ->
-        if netflixData.obj.serverDefs
-            clearInterval dataFetcherInterval
-            msg.transmit 'GroundControl', 'OSN:Constants', 'update', netflixData.obj
-    , 10
 
 #
 
@@ -257,10 +260,21 @@ fetchConstants = ->
 #     if event.data.type == 'sync_get_response'
 #         console.log event
 
+# window.addEventListener "OSN:ConfigGet", (e) ->
+#     console.log 'test 5'
+
+# jQuery(window).on "OSN:ConfigGet", (e) ->
+#     console.log 'test 8'
+
+EventHandler.on 'OSN:ConfigGet', (e) =>
+    console.log 'OSN:ConfigGet got caught', e
+    dataFetcherInterval = setInterval () =>
+        if netflixData.obj.serverDefs
+            clearInterval dataFetcherInterval
+            TransmissionHandler.sendForget 'Nebuchadnezzar', 'OSN:ConfigSet', {netflix: netflixData.obj}, e.uniqueId
+    , 10
+
 jQuery(document).ready ($) ->
-
-
-
 
     # console.log netflix
 
@@ -314,5 +328,3 @@ jQuery(document).ready ($) ->
     #     console.log "GlobalHeader.hideMenuEvent event:", e
     # $(document).on netflix.GlobalEvents.resumeAnimationLoops, (e) =>
     #     console.log "GlobalEvents.resumeAnimationLoops event:", e
-
-

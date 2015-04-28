@@ -9,20 +9,27 @@
 require.config({
   # waitSeconds: 20,
   baseUrl: chrome.extension.getURL('scripts'),
+  waitSeconds: 60,
   shim: {
     simulate   : 'jquery',
     bootstrap  : 'jquery'
   },
   paths: {
     # almond     : '../bower_components/almond/almond',
+    # text       : '../bower_components/requirejs-plugins/lib/text',
+    # async      : '../bower_components/requirejs-plugins/src/async',
+    # json       : '../bower_components/requirejs-plugins/src/json',
     promise    : '../bower_components/requirejs-promise/requirejs-promise',
+    # promiseme  : '../bower_components/requirejs-promiseme/promiseme',
+    # rq         : '../bower_components/requirejs-q/require-q',
     jquery     : '../bower_components/jquery/dist/jquery',
     q          : '../bower_components/q/q',
+    watch      : '../bower_components/watch/src/watch',
     simulate   : '../bower_components/jquery-simulate/jquery-simulate',
     underscore : '../bower_components/underscore/underscore',
     bootstrap  : '../bower_components/bootstrap/dist/js/bootstrap',
     KeyboardJS : '../bower_components/KeyboardJS/keyboard',
-    gamepad    : '../bower_components/HTML5-JavaScript-Gamepad-Controller-Library/gamepad',
+    gamepad    : '../bower_components/HTML5-JavaScript-Gamepad-Controller-Library/gamepad'
     # jsonp: '../bower_components/jsonp/jsonp',
 
     # leaflet: '../bower_components/leaflet/dist/leaflet',
@@ -37,53 +44,27 @@ require.config({
 
 require [
 	'q',
-	'modules/constants',
+	# 'promise!modules/config',
 	'modules/netflix_api',
 	'modules/utils',
 	'modules/handlers/action_handler',
 	'modules/handlers/transmission_handler',
 	'modules/controllers/home_controller',
 	'modules/controllers/genre_controller',
-], (Q, Constants, NetflixAPI, Utils, ActionHandler, TransmissionHandler, HomeController, GenreController) ->
-  	# start listening to transmitions
-    msg = new TransmissionHandler('GroundControl')
+], (Q, NetflixAPI, Utils, ActionHandler, TransmissionHandler, HomeController, GenreController) ->
+    # console.log 'Config1', Config
+    # Config.set('sync', 'test', 88).then () -> console.log 'Config2', Config.get()
 
-    # Infiltrating to netflix.com...
-    # Utils.injectScript "scripts/inject/jquery.min.js"
-    # Utils.injectScript "scripts/inject/injected.js"
+    # start listening to transmitions
+    # msg = new TransmissionHandler('GroundControl')
 
+    console.log 'Config2222'
     #
-    actionHandler = new ActionHandler
+    # actionHandler = new ActionHandler
     if window.location.pathname.match "/WiHome"
         controller = new HomeController
     else if window.location.pathname.match "/WiGenre"
         controller = new GenreController
-
-    testAPI = (movieID, trackID) ->
-        deferred = Q.defer()
-
-        constants.loaded().then (data) ->
-            deferred.resolve NetflixAPI.getMovieInfo movieID, trackID, false
-        , (error) ->
-            deferred.reject 0
-
-        if Constants.loaded
-            deferred.resolve NetflixAPI.getMovieInfo movieID, trackID, false
-        else
-            loadedConstantsInterval = setInterval () ->
-                if typeof Constants.loaded is 'boolean'
-                    clearInterval loadedConstantsInterval
-                    deferred.resolve NetflixAPI.getMovieInfo movieID, trackID, false if not Constants.loaded
-            , 10
-
-        deferred.promise
-        true
-
-    testAPI('70180183', '13462047').fail (error) ->
-        if error is 404 or # APIKey isn't updated
-        error is 0 # Data is empty
-            msg.transmit 'MajorTom', 'OSN:Constants', 'fetch'
-
 
 # triggers when page is done loading
 chrome.extension.sendMessage {}, (response) ->
@@ -94,10 +75,14 @@ chrome.extension.sendMessage {}, (response) ->
             console.log "Hello. This message was sent from scripts/inject.jasds"
 
 
-            movie = $('.agMovie.agMovie-lulg').first().find("a")
+            # movie = $('.agMovie.agMovie-lulg').first().find("a")
 
-            $(".gallery").bind "DOMNodeInserted", ->
-                console.log "child is appended"
+            # $(".gallery").bind "DOMNodeInserted", ->
+            #     console.log "child is appended"
+
+
+
+
 
             # movie.simulate 'mouseover'
 

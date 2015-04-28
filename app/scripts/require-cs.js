@@ -15,3 +15,6 @@ require.load = function (context, moduleName, url) {
   };
   xhr.send(null);
 };
+
+//# sourceURL=require-cs.js
+//# sourceURL=app/scripts/require-cs.js

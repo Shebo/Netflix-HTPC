@@ -1,9 +1,11 @@
 (function() {
   'use strict';
-  var EventHandler, NetflixData, NetflixHomeData, NetflixInnerData, TransmissionHandler, Utils, fetchConstants, msg, netflixData, pagesTypes,
-    __bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
+  var EventHandler, NetflixData, NetflixHomeData, NetflixInnerData, TransmissionHandler, Utils, netflixData, pagesTypes,
     __hasProp = {}.hasOwnProperty,
-    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
+    __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; },
+    __bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; };
+
+  console.log('we\'re in.');
 
   Utils = (function() {
     function Utils() {}
@@ -18,6 +20,10 @@
         }
       };
       return request.send();
+    };
+
+    Utils.getUniqueId = function() {
+      return Date.now();
     };
 
     Utils.parseURL = function(url) {
@@ -134,35 +140,34 @@
    */
 
   EventHandler = (function() {
-    function EventHandler() {
-      this._safeDispatch = __bind(this._safeDispatch, this);
-      this.dispatch = __bind(this.dispatch, this);
-    }
+    function EventHandler() {}
 
-    EventHandler.prototype.dispatch = function(type, action, info) {
-      var dispatchInterval;
-      if (info == null) {
-        info = void 0;
-      }
-      if (typeof $ !== "undefined" && $ !== null) {
-        return this._safeDispatch(type, action, info);
-      } else {
-        return dispatchInterval = setInterval(function() {
-          if (typeof $ !== "undefined" && $ !== null) {
-            clearInterval(dispatchInterval);
-            return this._safeDispatch(type, action, info);
-          }
-        }, 10);
-      }
+    EventHandler.fire = function(type, msg) {
+      var evt;
+      evt = new CustomEvent(type, {
+        detail: msg
+      });
+      document.dispatchEvent(evt);
+      return false;
     };
 
-    EventHandler.prototype._safeDispatch = function(type, action, info) {
-      $.event.trigger({
-        type: type,
-        action: action,
-        info: info
+    EventHandler.on = function(type, callback) {
+      document.addEventListener(type, function(e) {
+        var eventData;
+        eventData = e.detail ? e.detail : e.data;
+        return callback(eventData);
       });
-      return false;
+    };
+
+    EventHandler.off = function(type, callback) {
+      document.removeEventListener(type, callback);
+    };
+
+    EventHandler.one = function(type, callback) {
+      EventHandler.on(type, function(e) {
+        EventHandler.off(type, callback);
+        return callback(e);
+      });
     };
 
     return EventHandler;
@@ -173,35 +178,46 @@
     __extends(TransmissionHandler, _super);
 
     function TransmissionHandler() {
-      this._recieve = __bind(this._recieve, this);
-      this.transmit = __bind(this.transmit, this);
-      this.source = 'MajorTom';
-      window.addEventListener('message', this._recieve);
+      return TransmissionHandler.__super__.constructor.apply(this, arguments);
     }
 
-    TransmissionHandler.prototype.transmit = function(target, type, action, data) {
-      if (data == null) {
-        data = null;
-      }
+    TransmissionHandler.source = 'Neo';
+
+    TransmissionHandler._transmit = function(recipient, type, data, uniqueId) {
+      console.log("" + TransmissionHandler.source + ": Transmission is out", {
+        recipient: recipient,
+        type: type,
+        data: data,
+        uniqueId: uniqueId
+      });
       return window.postMessage({
-        sender: this.source,
-        recipient: target,
-        action: action,
+        uniqueId: uniqueId,
+        sender: TransmissionHandler.source,
+        recipient: recipient,
         type: type,
         data: data
       }, '*');
     };
 
-    TransmissionHandler.prototype._recieve = function(event) {
-      var msg;
-      msg = event.data;
-      this.dispatch(msg.type, msg.action, msg.data);
-      if (msg.recipient === this.source) {
-        if (msg.type === 'OSN:Constants' && msg.action === 'fetch') {
-          return fetchConstants();
-        }
+    TransmissionHandler._recieve = function(event) {
+      if (event.data.recipient === TransmissionHandler.source) {
+        console.log("" + TransmissionHandler.source + ": Transmission Recieved over", event);
+        return TransmissionHandler.fire(event.data.type, event.data);
       }
     };
+
+    TransmissionHandler.sendForget = function(recipient, type, data, uniqueId) {
+      if (data == null) {
+        data = null;
+      }
+      if (uniqueId == null) {
+        uniqueId = Utils.getUniqueId();
+      }
+      TransmissionHandler._transmit(recipient, type, data, uniqueId);
+      return uniqueId;
+    };
+
+    window.addEventListener('message', TransmissionHandler._recieve);
 
     return TransmissionHandler;
 
@@ -274,23 +290,26 @@
 
   })(NetflixData);
 
-  msg = new TransmissionHandler;
-
-  if (window.location.pathname.match("WiHome")) {
+  if (window.location.pathname.match(pagesTypes.home)) {
     netflixData = new NetflixHomeData;
-  } else if (window.location.pathname.match("WiGenre")) {
+  } else if (window.location.pathname.match(pagesTypes.genre)) {
     netflixData = new NetflixInnerData;
   }
 
-  fetchConstants = function() {
-    var dataFetcherInterval;
-    return dataFetcherInterval = setInterval(function() {
-      if (netflixData.obj.serverDefs) {
-        clearInterval(dataFetcherInterval);
-        return msg.transmit('GroundControl', 'OSN:Constants', 'update', netflixData.obj);
-      }
-    }, 10);
-  };
+  EventHandler.on('OSN:ConfigGet', (function(_this) {
+    return function(e) {
+      var dataFetcherInterval;
+      console.log('OSN:ConfigGet got caught', e);
+      return dataFetcherInterval = setInterval(function() {
+        if (netflixData.obj.serverDefs) {
+          clearInterval(dataFetcherInterval);
+          return TransmissionHandler.sendForget('Nebuchadnezzar', 'OSN:ConfigSet', {
+            netflix: netflixData.obj
+          }, e.uniqueId);
+        }
+      }, 10);
+    };
+  })(this));
 
   jQuery(document).ready(function($) {
     var eventsss, k, v, _results;

@@ -35,7 +35,7 @@ module.exports = function (grunt) {
       coffee: {
         files: ['<%= config.app %>/coffee/**/*.{coffee,litcoffee,coffee.md}'],
         // files: ['<%= config.app %>/scripts/{,*/}*.{coffee,litcoffee,coffee.md}'],
-        tasks: ['coffee:chrome', 'chromesourceurl:chrome'],
+        tasks: ['coffee:chrome', 'requirejs:chrome'],
         options: {
           spawn: false,
           livereload: '<%= connect.options.livereload %>'
@@ -84,29 +84,83 @@ module.exports = function (grunt) {
     requirejs: {
       chrome: {
         options: {
+          paths: {
+            // "async"      : '../bower_components/requirejs-plugins/src/async',
+            "promise"    : "../bower_components/requirejs-promise/requirejs-promise",
+            // "promiseme"  : '../bower_components/requirejs-promiseme/promiseme',
+            // "rq"         : '../bower_components/requirejs-q/require-q',
+            "jquery"     : '../bower_components/jquery/dist/jquery',
+            "q"          : '../bower_components/q/q',
+            "watch"      : '../bower_components/watch/src/watch',
+            "simulate"   : '../bower_components/jquery-simulate/jquery-simulate',
+            "underscore" : '../bower_components/underscore/underscore',
+            "bootstrap"  : '../bower_components/bootstrap/dist/js/bootstrap',
+            "KeyboardJS" : '../bower_components/KeyboardJS/keyboard',
+            "gamepad"    : '../bower_components/HTML5-JavaScript-Gamepad-Controller-Library/gamepad'
+          },
           optimize: 'none',
-          // generateSourceMaps: true,
-          generateSourceMaps: false,
+          generateSourceMaps: true,
+          // generateSourceMaps: false,
           baseUrl: "app/scripts",
-          mainConfigFile: "app/contentscript_config.js",
-          name: "../bower_components/almond/almond",
+          // mainConfigFile: "app/contentscript_config.js",
+          // name: "../bower_components/almond/almond",
           include: ['contentscript_src'],
           out: "app/scripts/contentscript.js"
         }
       },
       dist: {
         options: {
+          paths: {
+            // "async"      : '../bower_components/requirejs-plugins/src/async',
+            "promise"    : "../bower_components/requirejs-promise/requirejs-promise",
+            // "promiseme"  : '../bower_components/requirejs-promiseme/promiseme',
+            // "rq"         : '../bower_components/requirejs-q/require-q',
+            "jquery"     : '../bower_components/jquery/dist/jquery',
+            "q"          : '../bower_components/q/q',
+            "watch"      : '../bower_components/watch/src/watch',
+            "simulate"   : '../bower_components/jquery-simulate/jquery-simulate',
+            "underscore" : '../bower_components/underscore/underscore',
+            "bootstrap"  : '../bower_components/bootstrap/dist/js/bootstrap',
+            "KeyboardJS" : '../bower_components/KeyboardJS/keyboard',
+            "gamepad"    : '../bower_components/HTML5-JavaScript-Gamepad-Controller-Library/gamepad'
+          },
           optimize: 'none',
           // generateSourceMaps: true,
           generateSourceMaps: false,
           baseUrl: "app/scripts",
-          mainConfigFile: "app/contentscript_config.js",
-          name: "../bower_components/almond/almond",
+          // mainConfigFile: "app/contentscript_config.js",
+          // name: "../bower_components/almond/almond",
           include: ['contentscript_src'],
-          out: "app/scripts/contentscript.js"
+          out: "dist/scripts/contentscript.js"
         }
       }
     },
+
+    // requirejsconfig: {
+    //   chrome: {},
+    //   dist: {
+    //     src: 'src/scripts/main.js',
+    //     dest: 'dev/scripts/main.js',
+    //     options: {
+    //       baseUrl: '<%= config.app %>/scripts',
+    //       shim: {
+    //         simulate   : 'jquery',
+    //         bootstrap  : 'jquery'
+    //       },
+    //       paths: {
+    //         promise    : '<%= config.app %>/bower_components/requirejs-promise/requirejs-promise',
+    //         jquery     : '<%= config.app %>/bower_components/jquery/dist/jquery',
+    //         q          : '<%= config.app %>/bower_components/q/q',
+    //         simulate   : '<%= config.app %>/bower_components/jquery-simulate/jquery-simulate',
+    //         underscore : '<%= config.app %>/bower_components/underscore/underscore',
+    //         bootstrap  : '<%= config.app %>/bower_components/bootstrap/dist/js/bootstrap',
+    //         KeyboardJS : '<%= config.app %>/bower_components/KeyboardJS/keyboard',
+    //         gamepad    : '<%= config.app %>/bower_components/HTML5-JavaScript-Gamepad-Controller-Library/gamepad'
+    //       }
+    //     }
+    //   }
+    // },
+
     notify_hooks: {
       options: {
         // enabled: true,
@@ -463,6 +517,7 @@ module.exports = function (grunt) {
     'chromeManifest:dist',
     'useminPrepare',
     'concurrent:dist',
+    // 'requirejsconfig:dist',
     'requirejs:dist',
     'cssmin',
     'concat',
@@ -480,6 +535,7 @@ module.exports = function (grunt) {
 
   grunt.loadNpmTasks('grunt-contrib-requirejs');
   grunt.loadNpmTasks('grunt-notify');
+  // grunt.loadNpmTasks('grunt-requirejs-config');
   // grunt.loadNpmTasks('grunt-coffeescript-sourceurl');
 
 };

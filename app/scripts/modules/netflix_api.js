@@ -1,23 +1,19 @@
 (function() {
   'use strict';
-  define(["jquery", "q", 'modules/utils', 'modules/constants'], function($, Q, Utils, Constants) {
-    var NetflixAPI;
-    return NetflixAPI = (function() {
+  define(["require", "jquery", "q", "watch", 'modules/utils', 'promise!modules/config', 'modules/handlers/event_handler'], function(require, $, Q, WatchJS, Utils, Config, EventHandler) {
+    var NetflixAPI, isRelative;
+    WatchJS.watch(Config.local.netflix, function(prop, action, newvalue, oldvalue) {
+      return NetflixAPI.conf = this;
+    });
+    isRelative = true;
+    NetflixAPI = (function() {
       function NetflixAPI() {}
 
-      NetflixAPI.isRelative = true;
+      NetflixAPI.conf = Config.local.netflix;
 
-      NetflixAPI._getRoot = function() {
-        if (!NetflixAPI.isRelative) {
-          return "" + (Constants.isSecure ? "https" : "http") + "://" + Constants.domain + "/";
-        } else {
-          return '';
-        }
-      };
+      NetflixAPI.root = !isRelative ? "" + (NetflixAPI.conf.isSecure ? "https" : "http") + "://" + NetflixAPI.conf.domain + "/" : '';
 
-      NetflixAPI._getAPIRoot = function() {
-        return "" + (NetflixAPI._getRoot()) + "/" + Constants.APIRoot + "/" + Constants.APIKey;
-      };
+      NetflixAPI.APIRoot = "" + NetflixAPI.root + "/" + NetflixAPI.conf.APIRoot + "/" + NetflixAPI.conf.APIKey;
 
       NetflixAPI.getMovieInfo = function(movieID, trackID, jquery, type) {
         if (jquery == null) {
@@ -27,19 +23,27 @@
           type = 'shakti';
         }
         if (jquery) {
-          return Q($.getJSON("" + (this._getRoot()) + "/" + Constants.APIRoot + "/" + Constants.APIKey + "/bob", {
+          return $.getJSON("" + this.root + "/" + this.conf.APIRoot + "/" + this.conf.APIKey + "/bob", {
             titleid: movieID,
             trackid: trackID,
-            authURL: Constants.authURL
-          }));
+            authURL: this.conf.authURL
+          });
         } else {
-          return Utils.rawAjax("" + (this._getRoot()) + "/" + Constants.APIRoot + "/" + Constants.APIKey + "/bob?titleid=" + movieID + "&trackid=" + trackID + "&authURL=" + Constants.authURL);
+          return Utils.rawAjax("" + this.root + "/" + this.conf.APIRoot + "/" + this.conf.APIKey + "/bob?titleid=" + movieID + "&trackid=" + trackID + "&authURL=" + this.conf.authURL);
         }
       };
 
       return NetflixAPI;
 
     })();
+    return NetflixAPI.getMovieInfo(1, 1).fail(function(error) {
+      if (error.status === 404 || error.status === 0) {
+        console.log('need to update', Config);
+        return Config.resetNetflix().then(function(data) {
+          return NetflixAPI.conf = Config.local.netflix;
+        });
+      }
+    });
   });
 
 }).call(this);

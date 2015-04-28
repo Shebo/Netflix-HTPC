@@ -1,436 +1,3 @@
-/**
- * @license almond 0.3.1 Copyright (c) 2011-2014, The Dojo Foundation All Rights Reserved.
- * Available via the MIT or new BSD license.
- * see: http://github.com/jrburke/almond for details
- */
-//Going sloppy to avoid 'use strict' string cost, but strict practices should
-//be followed.
-/*jslint sloppy: true */
-/*global setTimeout: false */
-
-var requirejs, require, define;
-(function (undef) {
-    var main, req, makeMap, handlers,
-        defined = {},
-        waiting = {},
-        config = {},
-        defining = {},
-        hasOwn = Object.prototype.hasOwnProperty,
-        aps = [].slice,
-        jsSuffixRegExp = /\.js$/;
-
-    function hasProp(obj, prop) {
-        return hasOwn.call(obj, prop);
-    }
-
-    /**
-     * Given a relative module name, like ./something, normalize it to
-     * a real name that can be mapped to a path.
-     * @param {String} name the relative name
-     * @param {String} baseName a real name that the name arg is relative
-     * to.
-     * @returns {String} normalized name
-     */
-    function normalize(name, baseName) {
-        var nameParts, nameSegment, mapValue, foundMap, lastIndex,
-            foundI, foundStarMap, starI, i, j, part,
-            baseParts = baseName && baseName.split("/"),
-            map = config.map,
-            starMap = (map && map['*']) || {};
-
-        //Adjust any relative paths.
-        if (name && name.charAt(0) === ".") {
-            //If have a base name, try to normalize against it,
-            //otherwise, assume it is a top-level require that will
-            //be relative to baseUrl in the end.
-            if (baseName) {
-                name = name.split('/');
-                lastIndex = name.length - 1;
-
-                // Node .js allowance:
-                if (config.nodeIdCompat && jsSuffixRegExp.test(name[lastIndex])) {
-                    name[lastIndex] = name[lastIndex].replace(jsSuffixRegExp, '');
-                }
-
-                //Lop off the last part of baseParts, so that . matches the
-                //"directory" and not name of the baseName's module. For instance,
-                //baseName of "one/two/three", maps to "one/two/three.js", but we
-                //want the directory, "one/two" for this normalization.
-                name = baseParts.slice(0, baseParts.length - 1).concat(name);
-
-                //start trimDots
-                for (i = 0; i < name.length; i += 1) {
-                    part = name[i];
-                    if (part === ".") {
-                        name.splice(i, 1);
-                        i -= 1;
-                    } else if (part === "..") {
-                        if (i === 1 && (name[2] === '..' || name[0] === '..')) {
-                            //End of the line. Keep at least one non-dot
-                            //path segment at the front so it can be mapped
-                            //correctly to disk. Otherwise, there is likely
-                            //no path mapping for a path starting with '..'.
-                            //This can still fail, but catches the most reasonable
-                            //uses of ..
-                            break;
-                        } else if (i > 0) {
-                            name.splice(i - 1, 2);
-                            i -= 2;
-                        }
-                    }
-                }
-                //end trimDots
-
-                name = name.join("/");
-            } else if (name.indexOf('./') === 0) {
-                // No baseName, so this is ID is resolved relative
-                // to baseUrl, pull off the leading dot.
-                name = name.substring(2);
-            }
-        }
-
-        //Apply map config if available.
-        if ((baseParts || starMap) && map) {
-            nameParts = name.split('/');
-
-            for (i = nameParts.length; i > 0; i -= 1) {
-                nameSegment = nameParts.slice(0, i).join("/");
-
-                if (baseParts) {
-                    //Find the longest baseName segment match in the config.
-                    //So, do joins on the biggest to smallest lengths of baseParts.
-                    for (j = baseParts.length; j > 0; j -= 1) {
-                        mapValue = map[baseParts.slice(0, j).join('/')];
-
-                        //baseName segment has  config, find if it has one for
-                        //this name.
-                        if (mapValue) {
-                            mapValue = mapValue[nameSegment];
-                            if (mapValue) {
-                                //Match, update name to the new value.
-                                foundMap = mapValue;
-                                foundI = i;
-                                break;
-                            }
-                        }
-                    }
-                }
-
-                if (foundMap) {
-                    break;
-                }
-
-                //Check for a star map match, but just hold on to it,
-                //if there is a shorter segment match later in a matching
-                //config, then favor over this star map.
-                if (!foundStarMap && starMap && starMap[nameSegment]) {
-                    foundStarMap = starMap[nameSegment];
-                    starI = i;
-                }
-            }
-
-            if (!foundMap && foundStarMap) {
-                foundMap = foundStarMap;
-                foundI = starI;
-            }
-
-            if (foundMap) {
-                nameParts.splice(0, foundI, foundMap);
-                name = nameParts.join('/');
-            }
-        }
-
-        return name;
-    }
-
-    function makeRequire(relName, forceSync) {
-        return function () {
-            //A version of a require function that passes a moduleName
-            //value for items that may need to
-            //look up paths relative to the moduleName
-            var args = aps.call(arguments, 0);
-
-            //If first arg is not require('string'), and there is only
-            //one arg, it is the array form without a callback. Insert
-            //a null so that the following concat is correct.
-            if (typeof args[0] !== 'string' && args.length === 1) {
-                args.push(null);
-            }
-            return req.apply(undef, args.concat([relName, forceSync]));
-        };
-    }
-
-    function makeNormalize(relName) {
-        return function (name) {
-            return normalize(name, relName);
-        };
-    }
-
-    function makeLoad(depName) {
-        return function (value) {
-            defined[depName] = value;
-        };
-    }
-
-    function callDep(name) {
-        if (hasProp(waiting, name)) {
-            var args = waiting[name];
-            delete waiting[name];
-            defining[name] = true;
-            main.apply(undef, args);
-        }
-
-        if (!hasProp(defined, name) && !hasProp(defining, name)) {
-            throw new Error('No ' + name);
-        }
-        return defined[name];
-    }
-
-    //Turns a plugin!resource to [plugin, resource]
-    //with the plugin being undefined if the name
-    //did not have a plugin prefix.
-    function splitPrefix(name) {
-        var prefix,
-            index = name ? name.indexOf('!') : -1;
-        if (index > -1) {
-            prefix = name.substring(0, index);
-            name = name.substring(index + 1, name.length);
-        }
-        return [prefix, name];
-    }
-
-    /**
-     * Makes a name map, normalizing the name, and using a plugin
-     * for normalization if necessary. Grabs a ref to plugin
-     * too, as an optimization.
-     */
-    makeMap = function (name, relName) {
-        var plugin,
-            parts = splitPrefix(name),
-            prefix = parts[0];
-
-        name = parts[1];
-
-        if (prefix) {
-            prefix = normalize(prefix, relName);
-            plugin = callDep(prefix);
-        }
-
-        //Normalize according
-        if (prefix) {
-            if (plugin && plugin.normalize) {
-                name = plugin.normalize(name, makeNormalize(relName));
-            } else {
-                name = normalize(name, relName);
-            }
-        } else {
-            name = normalize(name, relName);
-            parts = splitPrefix(name);
-            prefix = parts[0];
-            name = parts[1];
-            if (prefix) {
-                plugin = callDep(prefix);
-            }
-        }
-
-        //Using ridiculous property names for space reasons
-        return {
-            f: prefix ? prefix + '!' + name : name, //fullName
-            n: name,
-            pr: prefix,
-            p: plugin
-        };
-    };
-
-    function makeConfig(name) {
-        return function () {
-            return (config && config.config && config.config[name]) || {};
-        };
-    }
-
-    handlers = {
-        require: function (name) {
-            return makeRequire(name);
-        },
-        exports: function (name) {
-            var e = defined[name];
-            if (typeof e !== 'undefined') {
-                return e;
-            } else {
-                return (defined[name] = {});
-            }
-        },
-        module: function (name) {
-            return {
-                id: name,
-                uri: '',
-                exports: defined[name],
-                config: makeConfig(name)
-            };
-        }
-    };
-
-    main = function (name, deps, callback, relName) {
-        var cjsModule, depName, ret, map, i,
-            args = [],
-            callbackType = typeof callback,
-            usingExports;
-
-        //Use name if no relName
-        relName = relName || name;
-
-        //Call the callback to define the module, if necessary.
-        if (callbackType === 'undefined' || callbackType === 'function') {
-            //Pull out the defined dependencies and pass the ordered
-            //values to the callback.
-            //Default to [require, exports, module] if no deps
-            deps = !deps.length && callback.length ? ['require', 'exports', 'module'] : deps;
-            for (i = 0; i < deps.length; i += 1) {
-                map = makeMap(deps[i], relName);
-                depName = map.f;
-
-                //Fast path CommonJS standard dependencies.
-                if (depName === "require") {
-                    args[i] = handlers.require(name);
-                } else if (depName === "exports") {
-                    //CommonJS module spec 1.1
-                    args[i] = handlers.exports(name);
-                    usingExports = true;
-                } else if (depName === "module") {
-                    //CommonJS module spec 1.1
-                    cjsModule = args[i] = handlers.module(name);
-                } else if (hasProp(defined, depName) ||
-                           hasProp(waiting, depName) ||
-                           hasProp(defining, depName)) {
-                    args[i] = callDep(depName);
-                } else if (map.p) {
-                    map.p.load(map.n, makeRequire(relName, true), makeLoad(depName), {});
-                    args[i] = defined[depName];
-                } else {
-                    throw new Error(name + ' missing ' + depName);
-                }
-            }
-
-            ret = callback ? callback.apply(defined[name], args) : undefined;
-
-            if (name) {
-                //If setting exports via "module" is in play,
-                //favor that over return value and exports. After that,
-                //favor a non-undefined return value over exports use.
-                if (cjsModule && cjsModule.exports !== undef &&
-                        cjsModule.exports !== defined[name]) {
-                    defined[name] = cjsModule.exports;
-                } else if (ret !== undef || !usingExports) {
-                    //Use the return value from the function.
-                    defined[name] = ret;
-                }
-            }
-        } else if (name) {
-            //May just be an object definition for the module. Only
-            //worry about defining if have a module name.
-            defined[name] = callback;
-        }
-    };
-
-    requirejs = require = req = function (deps, callback, relName, forceSync, alt) {
-        if (typeof deps === "string") {
-            if (handlers[deps]) {
-                //callback in this case is really relName
-                return handlers[deps](callback);
-            }
-            //Just return the module wanted. In this scenario, the
-            //deps arg is the module name, and second arg (if passed)
-            //is just the relName.
-            //Normalize module name, if it contains . or ..
-            return callDep(makeMap(deps, callback).f);
-        } else if (!deps.splice) {
-            //deps is a config object, not an array.
-            config = deps;
-            if (config.deps) {
-                req(config.deps, config.callback);
-            }
-            if (!callback) {
-                return;
-            }
-
-            if (callback.splice) {
-                //callback is an array, which means it is a dependency list.
-                //Adjust args if there are dependencies
-                deps = callback;
-                callback = relName;
-                relName = null;
-            } else {
-                deps = undef;
-            }
-        }
-
-        //Support require(['a'])
-        callback = callback || function () {};
-
-        //If relName is a function, it is an errback handler,
-        //so remove it.
-        if (typeof relName === 'function') {
-            relName = forceSync;
-            forceSync = alt;
-        }
-
-        //Simulate async callback;
-        if (forceSync) {
-            main(undef, deps, callback, relName);
-        } else {
-            //Using a non-zero value because of concern for what old browsers
-            //do, and latest browsers "upgrade" to 4 if lower value is used:
-            //http://www.whatwg.org/specs/web-apps/current-work/multipage/timers.html#dom-windowtimers-settimeout:
-            //If want a value immediately, use require('id') instead -- something
-            //that works in almond on the global level, but not guaranteed and
-            //unlikely to work in other AMD implementations.
-            setTimeout(function () {
-                main(undef, deps, callback, relName);
-            }, 4);
-        }
-
-        return req;
-    };
-
-    /**
-     * Just drops the config on the floor, but returns req in case
-     * the config return value is used.
-     */
-    req.config = function (cfg) {
-        return req(cfg);
-    };
-
-    /**
-     * Expose module registry for debugging and tooling
-     */
-    requirejs._defined = defined;
-
-    define = function (name, deps, callback) {
-        if (typeof name !== 'string') {
-            throw new Error('See almond README: incorrect module build, no module name');
-        }
-
-        //This module may not have dependencies
-        if (!deps.splice) {
-            //deps is not an array, so probably means
-            //an object literal or factory function for
-            //the value. Adjust args.
-            callback = deps;
-            deps = [];
-        }
-
-        if (!hasProp(defined, name) && !hasProp(waiting, name)) {
-            waiting[name] = [name, deps, callback];
-        }
-    };
-
-    define.amd = {
-        jQuery: true
-    };
-}());
-
-define("../bower_components/almond/almond", function(){});
-
 // vim:ts=4:sts=4:sw=4:
 /*!
  *
@@ -11542,6 +11109,957 @@ return jQuery;
 
 }));
 
+/**
+ * DEVELOPED BY
+ * GIL LOPES BUENO
+ * gilbueno.mail@gmail.com
+ *
+ * WORKS WITH:
+ * IE8*, IE 9+, FF 4+, SF 5+, WebKit, CH 7+, OP 12+, BESEN, Rhino 1.7+
+ * For IE8 (and other legacy browsers) WatchJS will use dirty checking  
+ *
+ * FORK:
+ * https://github.com/melanke/Watch.JS
+ */
+
+
+(function (factory) {
+    if (typeof exports === 'object') {
+        // Node. Does not work with strict CommonJS, but
+        // only CommonJS-like enviroments that support module.exports,
+        // like Node.
+        module.exports = factory();
+    } else if (typeof define === 'function' && define.amd) {
+        // AMD. Register as an anonymous module.
+        define('watch',factory);
+    } else {
+        // Browser globals
+        window.WatchJS = factory();
+        window.watch = window.WatchJS.watch;
+        window.unwatch = window.WatchJS.unwatch;
+        window.callWatchers = window.WatchJS.callWatchers;
+    }
+}(function () {
+
+    var WatchJS = {
+        noMore: false,        // use WatchJS.suspend(obj) instead
+        useDirtyCheck: false // use only dirty checking to track changes.
+    },
+    lengthsubjects = [];
+    
+    var dirtyChecklist = [];
+    var pendingChanges = []; // used coalesce changes from defineProperty and __defineSetter__
+    
+    var supportDefineProperty = false;
+    try {
+        supportDefineProperty = Object.defineProperty && Object.defineProperty({},'x', {});
+    } catch(ex) {  /* not supported */  }
+
+    var isFunction = function (functionToCheck) {
+        var getType = {};
+        return functionToCheck && getType.toString.call(functionToCheck) == '[object Function]';
+    };
+
+    var isInt = function (x) {
+        return x % 1 === 0;
+    };
+
+    var isArray = function(obj) {
+        return Object.prototype.toString.call(obj) === '[object Array]';
+    };
+
+    var isObject = function(obj) {
+        return {}.toString.apply(obj) === '[object Object]';
+    };
+    
+    var getObjDiff = function(a, b){
+        var aplus = [],
+        bplus = [];
+
+        if(!(typeof a == "string") && !(typeof b == "string")){
+
+            if (isArray(a)) {
+                for (var i=0; i<a.length; i++) {
+                    if (b[i] === undefined) aplus.push(i);
+                }
+            } else {
+                for(var i in a){
+                    if (a.hasOwnProperty(i)) {
+                        if(b[i] === undefined) {
+                            aplus.push(i);
+                        }
+                    }
+                }
+            }
+
+            if (isArray(b)) {
+                for (var j=0; j<b.length; j++) {
+                    if (a[j] === undefined) bplus.push(j);
+                }
+            } else {
+                for(var j in b){
+                    if (b.hasOwnProperty(j)) {
+                        if(a[j] === undefined) {
+                            bplus.push(j);
+                        }
+                    }
+                }
+            }
+        }
+
+        return {
+            added: aplus,
+            removed: bplus
+        }
+    };
+
+    var clone = function(obj){
+
+        if (null == obj || "object" != typeof obj) {
+            return obj;
+        }
+
+        var copy = obj.constructor();
+
+        for (var attr in obj) {
+            copy[attr] = obj[attr];
+        }
+
+        return copy;        
+
+    }
+
+    var defineGetAndSet = function (obj, propName, getter, setter) {
+        try {
+            Object.observe(obj, function(changes) {
+                changes.forEach(function(change) {
+                    if (change.name === propName) {
+                        setter(change.object[change.name]);
+                    }
+                });
+            });            
+        } 
+        catch(e) {
+            try {
+                Object.defineProperty(obj, propName, {
+                    get: getter,
+                    set: function(value) {        
+                        setter.call(this,value,true); // coalesce changes
+                    },
+                    enumerable: true,
+                    configurable: true
+                });
+            } 
+            catch(e2) {
+                try{
+                    Object.prototype.__defineGetter__.call(obj, propName, getter);
+                    Object.prototype.__defineSetter__.call(obj, propName, function(value) {
+                        setter.call(this,value,true); // coalesce changes
+                    });
+                } 
+                catch(e3) {
+                    observeDirtyChanges(obj,propName,setter);
+                    //throw new Error("watchJS error: browser not supported :/")
+                }
+            }
+        }
+    };
+
+    var defineProp = function (obj, propName, value) {
+        try {
+            Object.defineProperty(obj, propName, {
+                enumerable: false,
+                configurable: true,
+                writable: false,
+                value: value
+            });
+        } catch(error) {
+            obj[propName] = value;
+        }
+    };
+
+    var observeDirtyChanges = function(obj,propName,setter) {
+        dirtyChecklist[dirtyChecklist.length] = {
+            prop:       propName,
+            object:     obj,
+            orig:       clone(obj[propName]),
+            callback:   setter
+        }        
+    }
+    
+    var watch = function () {
+
+        if (isFunction(arguments[1])) {
+            watchAll.apply(this, arguments);
+        } else if (isArray(arguments[1])) {
+            watchMany.apply(this, arguments);
+        } else {
+            watchOne.apply(this, arguments);
+        }
+
+    };
+
+
+    var watchAll = function (obj, watcher, level, addNRemove) {
+
+        if ((typeof obj == "string") || (!(obj instanceof Object) && !isArray(obj))) { //accepts only objects and array (not string)
+            return;
+        }
+
+        if(isArray(obj)) {
+            defineWatcher(obj, "__watchall__", watcher, level); // watch all changes on the array
+            if (level===undefined||level > 0) {
+                for (var prop = 0; prop < obj.length; prop++) { // watch objects in array
+                   watchAll(obj[prop],watcher,level, addNRemove);
+                }
+            }
+        } 
+        else {
+            var prop,props = [];
+            for (prop in obj) { //for each attribute if obj is an object
+                if (prop == "$val" || (!supportDefineProperty && prop === 'watchers')) {
+                    continue;
+                }
+
+                if (Object.prototype.hasOwnProperty.call(obj, prop)) {
+                    props.push(prop); //put in the props
+                }
+            }
+            watchMany(obj, props, watcher, level, addNRemove); //watch all items of the props
+        }
+
+
+        if (addNRemove) {
+            pushToLengthSubjects(obj, "$$watchlengthsubjectroot", watcher, level);
+        }
+    };
+
+
+    var watchMany = function (obj, props, watcher, level, addNRemove) {
+
+        if ((typeof obj == "string") || (!(obj instanceof Object) && !isArray(obj))) { //accepts only objects and array (not string)
+            return;
+        }
+
+        for (var i=0; i<props.length; i++) { //watch each property
+            var prop = props[i];
+            watchOne(obj, prop, watcher, level, addNRemove);
+        }
+
+    };
+
+    var watchOne = function (obj, prop, watcher, level, addNRemove) {
+        if ((typeof obj == "string") || (!(obj instanceof Object) && !isArray(obj))) { //accepts only objects and array (not string)
+            return;
+        }
+
+        if(isFunction(obj[prop])) { //dont watch if it is a function
+            return;
+        }
+        if(obj[prop] != null && (level === undefined || level > 0)){
+            watchAll(obj[prop], watcher, level!==undefined? level-1 : level); //recursively watch all attributes of this
+        }
+
+        defineWatcher(obj, prop, watcher, level);
+
+        if(addNRemove && (level === undefined || level > 0)){
+            pushToLengthSubjects(obj, prop, watcher, level);
+        }
+
+    };
+
+    var unwatch = function () {
+
+        if (isFunction(arguments[1])) {
+            unwatchAll.apply(this, arguments);
+        } else if (isArray(arguments[1])) {
+            unwatchMany.apply(this, arguments);
+        } else {
+            unwatchOne.apply(this, arguments);
+        }
+
+    };
+
+    var unwatchAll = function (obj, watcher) {
+
+        if (obj instanceof String || (!(obj instanceof Object) && !isArray(obj))) { //accepts only objects and array (not string)
+            return;
+        }
+
+        if (isArray(obj)) {
+            var props = ['__watchall__'];
+            for (var prop = 0; prop < obj.length; prop++) { //for each item if obj is an array
+                props.push(prop); //put in the props
+            }
+            unwatchMany(obj, props, watcher); //watch all itens of the props
+        } else {
+            var unwatchPropsInObject = function (obj2) {
+                var props = [];
+                for (var prop2 in obj2) { //for each attribute if obj is an object
+                    if (obj2.hasOwnProperty(prop2)) {
+                        if (obj2[prop2] instanceof Object) {
+                            unwatchPropsInObject(obj2[prop2]); //recurs into object props
+                        } else {
+                            props.push(prop2); //put in the props
+                        }
+                    }
+                }
+                unwatchMany(obj2, props, watcher); //unwatch all of the props
+            };
+            unwatchPropsInObject(obj);
+        }
+    };
+
+
+    var unwatchMany = function (obj, props, watcher) {
+
+        for (var prop2 in props) { //watch each attribute of "props" if is an object
+            if (props.hasOwnProperty(prop2)) {
+                unwatchOne(obj, props[prop2], watcher);
+            }
+        }
+    };
+
+    var timeouts = [],
+        timerID = null;
+    function clearTimerID() {
+        timerID = null;
+        for(var i=0; i< timeouts.length; i++) {
+            timeouts[i]();
+        }
+        timeouts.length = 0;
+    }
+    var getTimerID= function () {
+        if (!timerID)  {
+            timerID = setTimeout(clearTimerID);
+        }
+        return timerID;
+    }
+    var registerTimeout = function(fn) { // register function to be called on timeout
+        if (timerID==null) getTimerID();
+        timeouts[timeouts.length] = fn;
+    }
+    
+    // Track changes made to an array, object or an object's property 
+    // and invoke callback with a single change object containing type, value, oldvalue and array splices
+    // Syntax: 
+    //      trackChange(obj, callback, recursive, addNRemove)
+    //      trackChange(obj, prop, callback, recursive, addNRemove)
+    var trackChange = function() {
+        var fn = (isFunction(arguments[2])) ? trackProperty : trackObject ;
+        fn.apply(this,arguments);
+    }
+
+    // track changes made to an object and invoke callback with a single change object containing type, value and array splices
+    var trackObject= function(obj, callback, recursive, addNRemove) {
+        var change = null,lastTimerID = -1;
+        var isArr = isArray(obj);
+        var level,fn = function(prop, action, newValue, oldValue) {
+            var timerID = getTimerID();
+            if (lastTimerID!==timerID) { // check if timer has changed since last update
+                lastTimerID = timerID;
+                change = {
+                    type: 'update'
+                }
+                change['value'] = obj;
+                change['splices'] = null;
+                registerTimeout(function() {
+                    callback.call(this,change);
+                    change = null;
+                });
+            }
+            // create splices for array changes
+            if (isArr && obj === this && change !== null)  {                
+                if (action==='pop'||action==='shift') {
+                    newValue = [];
+                    oldValue = [oldValue];
+                }
+                else if (action==='push'||action==='unshift') {
+                    newValue = [newValue];
+                    oldValue = [];
+                }
+                else if (action!=='splice') { 
+                    return; // return here - for reverse and sort operations we don't need to return splices. a simple update will do
+                }
+                if (!change.splices) change.splices = [];
+                change.splices[change.splices.length] = {
+                    index: prop,
+                    deleteCount: oldValue ? oldValue.length : 0,
+                    addedCount: newValue ? newValue.length : 0,
+                    added: newValue,
+                    deleted: oldValue
+                };
+            }
+
+        }  
+        level = (recursive==true) ? undefined : 0;        
+        watchAll(obj,fn, level, addNRemove);
+    }
+    
+    // track changes made to the property of an object and invoke callback with a single change object containing type, value, oldvalue and splices
+    var trackProperty = function(obj,prop,callback,recursive, addNRemove) { 
+        if (obj && prop) {
+            watchOne(obj,prop,function(prop, action, newvalue, oldvalue) {
+                var change = {
+                    type: 'update'
+                }
+                change['value'] = newvalue;
+                change['oldvalue'] = oldvalue;
+                if (recursive && isObject(newvalue)||isArray(newvalue)) {
+                    trackObject(newvalue,callback,recursive, addNRemove);
+                }               
+                callback.call(this,change);
+            },0)
+            
+            if (recursive && isObject(obj[prop])||isArray(obj[prop])) {
+                trackObject(obj[prop],callback,recursive, addNRemove);
+            }                           
+        }
+    }
+    
+    
+    var defineWatcher = function (obj, prop, watcher, level) {
+        var newWatcher = false;
+        var isArr = isArray(obj);
+        
+        if (!obj.watchers) {
+            defineProp(obj, "watchers", {});
+            if (isArr) {
+                // watch array functions
+                watchFunctions(obj, function(index,action,newValue, oldValue) {
+                    addPendingChange(obj, index, action,newValue, oldValue);
+                    if (level !== 0 && newValue && (isObject(newValue) || isArray(newValue))) {
+                        var i,n, ln, wAll, watchList = obj.watchers[prop];
+                        if ((wAll = obj.watchers['__watchall__'])) {
+                            watchList = watchList ? watchList.concat(wAll) : wAll;
+                        }
+                        ln = watchList ?  watchList.length : 0;
+                        for (i = 0; i<ln; i++) {
+                            if (action!=='splice') {
+                                watchAll(newValue, watchList[i], (level===undefined)?level:level-1);
+                            }
+                            else {
+                                // watch spliced values
+                                for(n=0; n < newValue.length; n++) {
+                                    watchAll(newValue[n], watchList[i], (level===undefined)?level:level-1);
+                                }
+                            }
+                        }
+                    }
+                });
+            }
+        }
+
+        if (!obj.watchers[prop]) {
+            obj.watchers[prop] = [];
+            if (!isArr) newWatcher = true;
+        }
+
+        for (var i=0; i<obj.watchers[prop].length; i++) {
+            if(obj.watchers[prop][i] === watcher){
+                return;
+            }
+        }
+
+        obj.watchers[prop].push(watcher); //add the new watcher to the watchers array
+
+        if (newWatcher) {
+            var val = obj[prop];            
+            var getter = function () {
+                return val;                        
+            };
+
+            var setter = function (newval, delayWatcher) {
+                var oldval = val;
+                val = newval;                
+                if (level !== 0 
+                    && obj[prop] && (isObject(obj[prop]) || isArray(obj[prop]))
+                    && !obj[prop].watchers) {
+                    // watch sub properties
+                    var i,ln = obj.watchers[prop].length; 
+                    for(i=0; i<ln; i++) {
+                        watchAll(obj[prop], obj.watchers[prop][i], (level===undefined)?level:level-1);
+                    }
+                }
+
+                //watchFunctions(obj, prop);
+                
+                if (isSuspended(obj, prop)) {
+                    resume(obj, prop);
+                    return;
+                }
+
+                if (!WatchJS.noMore){ // this does not work with Object.observe
+                    //if (JSON.stringify(oldval) !== JSON.stringify(newval)) {
+                    if (oldval !== newval) {
+                        if (!delayWatcher) {
+                            callWatchers(obj, prop, "set", newval, oldval);
+                        }
+                        else {
+                            addPendingChange(obj, prop, "set", newval, oldval);
+                        }
+                        WatchJS.noMore = false;
+                    }
+                }
+            };
+
+            if (WatchJS.useDirtyCheck) {
+                observeDirtyChanges(obj,prop,setter);
+            }
+            else {
+                defineGetAndSet(obj, prop, getter, setter);
+            }
+        }
+
+    };
+
+    var callWatchers = function (obj, prop, action, newval, oldval) {
+        if (prop !== undefined) {
+            var ln, wl, watchList = obj.watchers[prop];
+            if ((wl = obj.watchers['__watchall__'])) {
+                watchList = watchList ? watchList.concat(wl) : wl;
+            }
+            ln = watchList ? watchList.length : 0;
+            for (var wr=0; wr< ln; wr++) {
+                watchList[wr].call(obj, prop, action, newval, oldval);
+            }
+        } else {
+            for (var prop in obj) {//call all
+                if (obj.hasOwnProperty(prop)) {
+                    callWatchers(obj, prop, action, newval, oldval);
+                }
+            }
+        }
+    };
+
+    var methodNames = ['pop', 'push', 'reverse', 'shift', 'sort', 'slice', 'unshift', 'splice'];
+    var defineArrayMethodWatcher = function (obj, original, methodName, callback) {
+        defineProp(obj, methodName, function () {
+            var index = 0;
+            var i,newValue, oldValue, response;                        
+            // get values before splicing array 
+            if (methodName === 'splice') {
+               var start = arguments[0];
+               var end = start + arguments[1];
+               oldValue = obj.slice(start,end);
+               newValue = [];
+               for(i=2;i<arguments.length;i++) {
+                   newValue[i-2] = arguments[i];
+               }
+               index = start;
+            } 
+            else {
+                newValue = arguments.length > 0 ? arguments[0] : undefined;
+            } 
+
+            response = original.apply(obj, arguments);
+            if (methodName !== 'slice') {
+                if (methodName === 'pop') {
+                    oldValue = response;
+                    index = obj.length;
+                }
+                else if (methodName === 'push') {
+                    index = obj.length-1;
+                }
+                else if (methodName === 'shift') {
+                    oldValue = response;
+                }
+                else if (methodName !== 'unshift' && newValue===undefined) {
+                    newValue = response;
+                }
+                callback.call(obj, index, methodName,newValue, oldValue)
+            }
+            return response;
+        });
+    };
+
+    var watchFunctions = function(obj, callback) {
+
+        if (!isFunction(callback) || !obj || (obj instanceof String) || (!isArray(obj))) {
+            return;
+        }
+
+        for (var i = methodNames.length, methodName; i--;) {
+            methodName = methodNames[i];
+            defineArrayMethodWatcher(obj, obj[methodName], methodName, callback);
+        }
+
+    };
+
+    var unwatchOne = function (obj, prop, watcher) {
+        if (obj.watchers[prop]) {
+            if (watcher===undefined) {
+                delete obj.watchers[prop]; // remove all property watchers
+            }
+            else {
+                for (var i=0; i<obj.watchers[prop].length; i++) {
+                    var w = obj.watchers[prop][i];
+    
+                    if (w == watcher) {
+                        obj.watchers[prop].splice(i, 1);
+                    }
+                }
+            }
+        }
+        removeFromLengthSubjects(obj, prop, watcher);
+        removeFromDirtyChecklist(obj, prop);
+    };
+    
+    // suspend watchers until next update cycle
+    var suspend = function(obj, prop) {
+        if (obj.watchers) {
+            var name = '__wjs_suspend__'+(prop!==undefined ? prop : '');
+            obj.watchers[name] = true;
+        }
+    }
+    
+    var isSuspended = function(obj, prop) {
+        return obj.watchers 
+               && (obj.watchers['__wjs_suspend__'] || 
+                   obj.watchers['__wjs_suspend__'+prop]);
+    }
+    
+    // resumes preivously suspended watchers
+    var resume = function(obj, prop) {
+        registerTimeout(function() {
+            delete obj.watchers['__wjs_suspend__'];
+            delete obj.watchers['__wjs_suspend__'+prop];
+        })
+    }
+
+    var pendingTimerID = null;
+    var addPendingChange = function(obj,prop, mode, newval, oldval) {
+        pendingChanges[pendingChanges.length] = {
+            obj:obj,
+            prop: prop,
+            mode: mode,
+            newval: newval,
+            oldval: oldval
+        };
+        if (pendingTimerID===null) {
+            pendingTimerID = setTimeout(applyPendingChanges);
+        }
+    };
+    
+    
+    var applyPendingChanges = function()  {
+        // apply pending changes
+        var change = null;
+        pendingTimerID = null;
+        for(var i=0;i < pendingChanges.length;i++) {
+            change = pendingChanges[i];
+            callWatchers(change.obj, change.prop, change.mode, change.newval, change.oldval);
+        }
+        if (change) {
+            pendingChanges = [];
+            change = null;
+        }        
+    }
+
+    var loop = function(){
+
+        // check for new or deleted props
+        for(var i=0; i<lengthsubjects.length; i++) {
+
+            var subj = lengthsubjects[i];
+
+            if (subj.prop === "$$watchlengthsubjectroot") {
+
+                var difference = getObjDiff(subj.obj, subj.actual);
+
+                if(difference.added.length || difference.removed.length){
+                    if(difference.added.length){
+                        watchMany(subj.obj, difference.added, subj.watcher, subj.level - 1, true);
+                    }
+
+                    subj.watcher.call(subj.obj, "root", "differentattr", difference, subj.actual);
+                }
+                subj.actual = clone(subj.obj);
+
+
+            } else {
+
+                var difference = getObjDiff(subj.obj[subj.prop], subj.actual);
+
+                if(difference.added.length || difference.removed.length){
+                    if(difference.added.length){
+                        for (var j=0; j<subj.obj.watchers[subj.prop].length; j++) {
+                            watchMany(subj.obj[subj.prop], difference.added, subj.obj.watchers[subj.prop][j], subj.level - 1, true);
+                        }
+                    }
+
+                    callWatchers(subj.obj, subj.prop, "differentattr", difference, subj.actual);
+                }
+
+                subj.actual = clone(subj.obj[subj.prop]);
+
+            }
+
+        }
+        
+        // start dirty check
+        var n, value;
+        if (dirtyChecklist.length > 0) {
+            for (var i = 0; i < dirtyChecklist.length; i++) {
+                n = dirtyChecklist[i];
+                value = n.object[n.prop];
+                if (!compareValues(n.orig, value)) {
+                    n.orig = clone(value);
+                    n.callback(value);
+                }
+            }
+        }
+
+    };
+
+    var compareValues =  function(a,b) {
+        var i, state = true;
+        if (a!==b)  {
+            if (isObject(a)) {
+                for(i in a) {
+                    if (!supportDefineProperty && i==='watchers') continue;
+                    if (a[i]!==b[i]) {
+                        state = false;
+                        break;
+                    };
+                }
+            }
+            else {
+                state = false;
+            }
+        }
+        return state;
+    }
+    
+    var pushToLengthSubjects = function(obj, prop, watcher, level){
+
+        var actual;
+
+        if (prop === "$$watchlengthsubjectroot") {
+            actual =  clone(obj);
+        } else {
+            actual = clone(obj[prop]);
+        }
+
+        lengthsubjects.push({
+            obj: obj,
+            prop: prop,
+            actual: actual,
+            watcher: watcher,
+            level: level
+        });
+    };
+
+    var removeFromLengthSubjects = function(obj, prop, watcher){
+
+        for (var i=0; i<lengthsubjects.length; i++) {
+            var subj = lengthsubjects[i];
+
+            if (subj.obj == obj && subj.prop == prop && subj.watcher == watcher) {
+                lengthsubjects.splice(i, 1);
+            }
+        }
+
+    };
+    
+    var removeFromDirtyChecklist = function(obj, prop){
+        var notInUse;
+        for (var i=0; i<dirtyChecklist.length; i++) {
+            var n = dirtyChecklist[i];
+            var watchers = n.object.watchers;
+            notInUse = (
+                n.object == obj 
+                && n.prop == prop 
+                && watchers
+                && ( !watchers[prop] || watchers[prop].length == 0 )
+            );
+            if (notInUse)  {
+                dirtyChecklist.splice(i, 1);
+            }
+        }
+
+    };    
+
+    setInterval(loop, 50);
+
+    WatchJS.watch = watch;
+    WatchJS.unwatch = unwatch;
+    WatchJS.callWatchers = callWatchers;
+    WatchJS.suspend = suspend; // suspend watchers    
+    WatchJS.onChange = trackChange;  // track changes made to object or  it's property and return a single change object
+
+    return WatchJS;
+
+}));
+
+(function() {
+  'use strict';
+  var __indexOf = [].indexOf || function(item) { for (var i = 0, l = this.length; i < l; i++) { if (i in this && this[i] === item) return i; } return -1; };
+
+  define('modules/utils',["q"], function(Q) {
+    var Utils;
+    return Utils = (function() {
+      function Utils() {}
+
+      Utils.getObjectKeyInArray = function(array, object) {
+        var el, i, _i, _len;
+        for (i = _i = 0, _len = array.length; _i < _len; i = ++_i) {
+          el = array[i];
+          if (el === object) {
+            return i;
+          }
+        }
+        return false;
+      };
+
+      Utils.isJson = function(str) {
+        var e;
+        try {
+          JSON.parse(str);
+        } catch (_error) {
+          e = _error;
+          return false;
+        }
+        return true;
+      };
+
+      Utils.getUniqueId = function() {
+        return Date.now();
+      };
+
+      Utils.verifyObjectByMap = function(obj, arr) {
+        var key, value;
+        for (key in obj) {
+          value = obj[key];
+          if (_.isObject(value)) {
+            if (__indexOf.call(_.keys(arr), key) >= 0) {
+              arr[key] = this.verifyObjectByMap(value, arr[key]);
+              if (_.isEmpty(arr[key])) {
+                delete arr[key];
+              }
+            }
+          } else {
+            if (__indexOf.call(arr, key) >= 0) {
+              arr = _.without(arr, key);
+            }
+          }
+        }
+        return _.isEmpty(arr);
+      };
+
+      Utils.injectScript = function(path) {
+        var deferred, script;
+        deferred = Q.defer();
+        script = document.createElement("script");
+        script.src = chrome.extension.getURL(path);
+        script.onload = function() {
+          return deferred.resolve(true);
+        };
+        document.head.appendChild(script);
+        return deferred.promise;
+      };
+
+      Utils.rawAjax = function(url) {
+        var deferred, request;
+        request = new XMLHttpRequest();
+        deferred = Q.defer();
+        request.open('GET', url, true);
+        request.onload = function() {
+          var result;
+          if (request.status === 200) {
+            result = Utils.isJson(request.responseText) ? JSON.parse(request.responseText) : request.responseText;
+            return deferred.resolve(result);
+          } else {
+            return deferred.reject(request.status);
+          }
+        };
+        request.onerror = function() {
+          return deferred.reject(request.status);
+        };
+        request.onprogress = function() {
+          return deferred.notify(event.loaded / event.total);
+        };
+        request.send();
+        return deferred.promise;
+      };
+
+      return Utils;
+
+    })();
+  });
+
+}).call(this);
+
+/*! see LICENCE for Simplified BSD Licence */
+/*jslint browser:true, indent:2*/
+/*global define, require*/ // Require.JS
+
+/*global Promise*/ // ES6 native Promise
+
+define('promise',[],function () {
+  'use strict';
+
+  var isPromise;
+
+  isPromise = function (obj) {
+    if (!obj || typeof obj !== 'object') {
+      return false;
+    }
+    if (window.Promise && obj instanceof Promise) {
+      return true;
+    }
+    return typeof obj.then === 'function';
+  };
+
+  return {
+    /**
+     * @param {String} name This is the name of the desired resource module.
+     * @param {Function} req Provides a "require" to load other modules.
+     * @param {Function} load Pass the module's result to this function.
+     * @param {Object} config Provides the optimizer's configuration.
+     */
+    load: function (name, req, load) { // , config
+      // TODO: check config.isBuild\
+      // TODO: call load.fromText() if necessary to eval JavaScript text
+      req([name], function (result) {
+        var onReject, onResolve, complete;
+        onReject = function () {
+          load.error.apply(null, arguments);
+        };
+        onResolve = function () {
+          load.apply(null, arguments);
+        };
+        if (isPromise(result)) {
+          // If the promise supports "done" (not all do), we want to use that to
+          // terminate the promise chain and expose any exceptions.
+          complete = result.done || result.then;
+
+          if (typeof result.fail === 'function') {
+            complete.call(result, onResolve);
+            result.fail(onReject);
+          } else {
+            // native Promises don't have `fail` (thanks @nfeldman)
+            complete.call(result, onResolve, onReject);
+          }
+
+        } else {
+          load(result);
+        }
+      });
+    }/*,
+    write: function () {
+      // TODO: what needs to be done for write() ??
+    }, */
+/*        pluginBuilder: function () {
+      // TODO: what needs to be done for pluginBuilder() ??
+    } */
+    /*
+     * Note: we explicitly do NOT implement normalize(), as the simpler
+     * default implementation is sufficient for current use cases.
+     */
+  };
+});
+
 //     Underscore.js 1.8.3
 //     http://underscorejs.org
 //     (c) 2009-2015 Jeremy Ashkenas, DocumentCloud and Investigative Reporters & Editors
@@ -13093,40 +13611,63 @@ return jQuery;
 
 (function() {
   'use strict';
-  var __bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; };
+  define('modules/injector',["modules/utils"], function(Utils) {
+    return Utils.injectScript("scripts/inject/injected.js");
+  });
 
-  define('modules/handlers/event_handler',["jquery"], function($) {
+}).call(this);
+
+
+(function() {
+  'use strict';
+  define('modules/default_sync_config',[], function() {
+    return {
+      controls: {
+        up: "up",
+        down: "down",
+        left: "left",
+        right: "right",
+        enter: "enter",
+        cancel: "escape"
+      }
+    };
+  });
+
+}).call(this);
+
+(function() {
+  'use strict';
+  define('modules/handlers/event_handler',[], function() {
     var EventHandler;
     return EventHandler = (function() {
-      function EventHandler() {
-        this._safeDispatch = __bind(this._safeDispatch, this);
-        this.dispatch = __bind(this.dispatch, this);
-      }
+      function EventHandler() {}
 
-      EventHandler.prototype.dispatch = function(type, action, info) {
-        var dispatchInterval;
-        if (info == null) {
-          info = void 0;
-        }
-        if ($ != null) {
-          return this._safeDispatch(type, action, info);
-        } else {
-          return dispatchInterval = setInterval(function() {
-            if ($ != null) {
-              clearInterval(dispatchInterval);
-              return this._safeDispatch(type, action, info);
-            }
-          }, 10);
-        }
+      EventHandler.fire = function(type, msg) {
+        var evt;
+        evt = new CustomEvent(type, {
+          detail: msg
+        });
+        document.dispatchEvent(evt);
+        return false;
       };
 
-      EventHandler.prototype._safeDispatch = function(type, action, info) {
-        $.event.trigger({
-          type: type,
-          action: action,
-          info: info
+      EventHandler.on = function(type, callback) {
+        document.addEventListener(type, function(e) {
+          var eventData;
+          eventData = e.detail ? e.detail : e.data;
+          return callback(eventData);
         });
-        return false;
+      };
+
+      EventHandler.off = function(type, callback) {
+        document.removeEventListener(type, callback);
+      };
+
+      EventHandler.one = function(type, callback) {
+        EventHandler.on(type, function(e) {
+          EventHandler.off(type, callback);
+          return callback(e);
+        });
       };
 
       return EventHandler;
@@ -13137,43 +13678,75 @@ return jQuery;
 }).call(this);
 
 (function() {
-  'use strict';
-  var __bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
-    __hasProp = {}.hasOwnProperty,
+  var __hasProp = {}.hasOwnProperty,
     __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
 
-  define('modules/handlers/transmission_handler',['modules/handlers/event_handler'], function(EventHandler) {
+  define('modules/handlers/transmission_handler',['q', 'modules/handlers/event_handler', 'modules/utils'], function(Q, EventHandler, Utils) {
     var TransmissionHandler;
     return TransmissionHandler = (function(_super) {
       __extends(TransmissionHandler, _super);
 
-      function TransmissionHandler(source) {
-        this._recieve = __bind(this._recieve, this);
-        this.transmit = __bind(this.transmit, this);
-        this.source = source;
-        window.addEventListener('message', this._recieve);
+      function TransmissionHandler() {
+        return TransmissionHandler.__super__.constructor.apply(this, arguments);
       }
 
-      TransmissionHandler.prototype.transmit = function(target, type, action, data) {
-        if (data == null) {
-          data = void 0;
-        }
+      TransmissionHandler.source = 'Nebuchadnezzar';
+
+      TransmissionHandler._transmit = function(recipient, type, data, uniqueId) {
+        console.log("" + TransmissionHandler.source + ": Transmission is out", {
+          recipient: recipient,
+          type: type,
+          data: data,
+          uniqueId: uniqueId
+        });
         return window.postMessage({
-          sender: this.source,
-          recipient: target,
-          action: action,
+          uniqueId: uniqueId,
+          sender: TransmissionHandler.source,
+          recipient: recipient,
           type: type,
           data: data
         }, '*');
       };
 
-      TransmissionHandler.prototype._recieve = function(event) {
-        var msg;
-        msg = event.data;
-        if (msg.recipient === this.source) {
-          return this.dispatch(msg.type, msg.action, msg.data);
+      TransmissionHandler._recieve = function(event) {
+        if (event.data.recipient === TransmissionHandler.source) {
+          console.log("" + TransmissionHandler.source + ": Transmission Recieved over", event);
+          return TransmissionHandler.fire(event.data);
         }
       };
+
+      TransmissionHandler.sendWait = function(recipient, type, data, uniqueId) {
+        var deferred;
+        if (data == null) {
+          data = null;
+        }
+        if (uniqueId == null) {
+          uniqueId = Utils.getUniqueId();
+        }
+        deferred = Q.defer();
+        TransmissionHandler._transmit(recipient, type, data, uniqueId);
+        TransmissionHandler.on(window, 'message', function(event) {
+          if (event.recipient === TransmissionHandler.source && event.uniqueId === uniqueId) {
+            TransmissionHandler.off(window, 'message', arguments.callee);
+            console.log("" + TransmissionHandler.source + ": Transmission came back", event);
+            return deferred.resolve(event);
+          }
+        });
+        return deferred.promise;
+      };
+
+      TransmissionHandler.sendForget = function(recipient, type, data, uniqueId) {
+        if (data == null) {
+          data = null;
+        }
+        if (uniqueId == null) {
+          uniqueId = Utils.getUniqueId();
+        }
+        TransmissionHandler._transmit(recipient, type, data, uniqueId);
+        return uniqueId;
+      };
+
+      window.addEventListener('message', TransmissionHandler._recieve);
 
       return TransmissionHandler;
 
@@ -13184,129 +13757,53 @@ return jQuery;
 
 (function() {
   'use strict';
-  define('modules/local_config',["jquery", "q", "underscore"], function($, Q, _) {
-    var deferred;
-    deferred = Q.defer();
-    setTimeout(function() {
-      console.log('local is over');
-      return deferred.resolve('YESSS');
-    }, 5000);
-    return deferred.promise;
-  });
+  define('modules/handlers/storage_handler',["q", "underscore"], function(Q, _) {
+    var Config;
+    return Config = (function() {
+      function Config() {}
 
-}).call(this);
-
-(function() {
-  'use strict';
-  define('modules/constants',["jquery", "q", "underscore", "modules/handlers/transmission_handler", "modules/local_config"], function($, Q, _, TransmissionHandler, Config) {
-    var Constants;
-    return Constants = (function() {
-      function Constants() {}
-
-      Constants.keys = ['domain', 'pages', 'isSecure', 'authURL', 'serverDefs', 'APIRoot', 'APIKey', 'loading'];
-
-      console.log('Config', Config);
-
-      Config.then(function(data) {
-        return console.log('Config2', data);
-      });
-
-      Constants.msg = new TransmissionHandler('GroundControl');
-
-      chrome.storage.local.get(function(data) {
-        return Constants.save(data);
-      });
-
-      $(document).on("OSN:Constants", function(e) {
-        if (e.action === 'update') {
-          return chrome.storage.local.set(e.info, function() {
-            return Constants.save(e.info);
-          });
+      Config.get = function(type, names) {
+        var deferred, storage;
+        if (names == null) {
+          names = null;
         }
-      });
-
-      Constants.save = function(data) {
-        var k, v;
-        console.log('saving data', data);
-        for (k in data) {
-          v = data[k];
-          Constants[k] = v;
-        }
-        if (_.isEmpty(_.difference(Constants.keys, _.keys(data)))) {
-          return Constants.loading = false;
-        } else {
-          return console.log('saving data not complete');
-        }
-      };
-
-      return Constants;
-
-    })();
-  });
-
-}).call(this);
-
-(function() {
-  'use strict';
-  define('modules/utils',["q"], function(Q) {
-    var Utils;
-    return Utils = (function() {
-      function Utils() {}
-
-      Utils.getObjectKeyInArray = function(array, object) {
-        var el, i, _i, _len;
-        for (i = _i = 0, _len = array.length; _i < _len; i = ++_i) {
-          el = array[i];
-          if (el === object) {
-            return i;
-          }
-        }
-        return false;
-      };
-
-      Utils.isJson = function(str) {
-        var e;
-        try {
-          JSON.parse(str);
-        } catch (_error) {
-          e = _error;
-          return false;
-        }
-        return true;
-      };
-
-      Utils.injectScript = function(path) {
-        var script;
-        script = document.createElement("script");
-        script.src = chrome.extension.getURL(path);
-        return document.head.appendChild(script);
-      };
-
-      Utils.rawAjax = function(url) {
-        var deferred, request;
-        request = new XMLHttpRequest();
         deferred = Q.defer();
-        request.open('GET', url, true);
-        request.onload = function() {
-          var result;
-          if (request.status === 200) {
-            result = Utils.isJson(request.responseText) ? JSON.parse(request.responseText) : request.responseText;
-            return deferred.resolve(result);
-          } else {
-            return deferred.reject(request.status);
-          }
-        };
-        request.onerror = function() {
-          return deferred.reject(request.status);
-        };
-        request.onprogress = function() {
-          return deferred.notify(event.loaded / event.total);
-        };
-        request.send();
+        switch (type) {
+          case 'sync':
+            storage = chrome.storage.sync;
+            break;
+          case 'local':
+            storage = chrome.storage.local;
+            break;
+          default:
+            null;
+        }
+        storage.get(names, function(data) {
+          return deferred.resolve([type, data]);
+        });
         return deferred.promise;
       };
 
-      return Utils;
+      Config.set = function(type, data) {
+        var deferred, storage;
+        deferred = Q.defer();
+        switch (type) {
+          case 'sync':
+            storage = chrome.storage.sync;
+            break;
+          case 'local':
+            storage = chrome.storage.local;
+            break;
+          default:
+            null;
+        }
+        storage.set(data, function() {
+          return deferred.resolve([type, data]);
+        });
+        return deferred.promise;
+      };
+
+      return Config;
 
     })();
   });
@@ -13315,24 +13812,104 @@ return jQuery;
 
 (function() {
   'use strict';
-  define('modules/netflix_api',["jquery", "q", 'modules/utils', 'modules/constants'], function($, Q, Utils, Constants) {
-    var NetflixAPI;
-    return NetflixAPI = (function() {
-      function NetflixAPI() {}
-
-      NetflixAPI.isRelative = true;
-
-      NetflixAPI._getRoot = function() {
-        if (!NetflixAPI.isRelative) {
-          return "" + (Constants.isSecure ? "https" : "http") + "://" + Constants.domain + "/";
-        } else {
-          return '';
+  define('modules/config',['require', "q", "underscore", 'promise!modules/injector', 'modules/default_sync_config', 'modules/utils', 'modules/handlers/event_handler', 'modules/handlers/transmission_handler', 'modules/handlers/storage_handler'], function(require, Q, _, Injector, default_sync_config, Utils, Transmission, EventHandler, Storage) {
+    var config, local, localDeferred, mainDeferred, promises, reset, save, sync, syncDeferred, test;
+    reset = function(type) {
+      if (type === 'local') {
+        return Transmission.sendWait('Neo', 'OSN:ConfigGet').then(function(result) {
+          return config.set('local', result.data);
+        });
+      } else if (type === 'sync') {
+        return config.set('sync', default_sync_config);
+      }
+    };
+    test = function(type, data) {
+      var storage_map;
+      storage_map = {
+        local: {
+          netflix: ['APIKey', 'APIRoot', 'authURL', 'domain', 'isSecure', 'pages', 'serverDefs']
+        },
+        sync: {
+          controls: ['up', 'down', 'left', 'right', 'enter', 'cancel']
         }
       };
+      return Utils.verifyObjectByMap(data, storage_map[type]);
+    };
+    save = function(result) {
+      var data, k, type, v, _results;
+      type = result[0];
+      data = result[1];
+      config[type] = {};
+      _results = [];
+      for (k in data) {
+        v = data[k];
+        _results.push(config[type][k] = v);
+      }
+      return _results;
+    };
+    config = {
+      resetNetflix: function() {
+        return reset('local');
+      },
+      resetControls: function() {
+        return reset('sync');
+      },
+      set: function(type, data) {
+        return Storage.set(type, data).then(function(result) {
+          return save(result);
+        });
+      },
+      get: function(type) {
+        var deferred;
+        deferred = Q.defer();
+        Storage.get(type).then(function(result) {
+          var data;
+          data = result[1];
+          if (test(type, data)) {
+            return deferred.resolve([type, data]);
+          } else {
+            return deferred.reject(type);
+          }
+        });
+        return deferred.promise;
+      }
+    };
+    mainDeferred = Q.defer();
+    promises = [];
+    localDeferred = Q.defer();
+    syncDeferred = Q.defer();
+    promises.push(localDeferred.promise, syncDeferred.promise);
+    local = config.get('local').then(save, reset).then(function(data) {
+      return syncDeferred.resolve(true);
+    });
+    sync = config.get('sync').then(save, reset).then(function(data) {
+      return syncDeferred.resolve(true);
+    });
+    Q.all([local, sync]).then(function(results) {
+      return mainDeferred.resolve(config);
+    });
+    return mainDeferred.promise;
+  });
 
-      NetflixAPI._getAPIRoot = function() {
-        return "" + (NetflixAPI._getRoot()) + "/" + Constants.APIRoot + "/" + Constants.APIKey;
-      };
+}).call(this);
+
+
+(function() {
+  'use strict';
+  define('modules/netflix_api',["require", "jquery", "q", "watch", 'modules/utils', 'promise!modules/config', 'modules/handlers/event_handler'], function(require, $, Q, WatchJS, Utils, Config, EventHandler) {
+    var NetflixAPI, isRelative;
+    WatchJS.watch(Config.local.netflix, function(prop, action, newvalue, oldvalue) {
+      return NetflixAPI.conf = this;
+    });
+    isRelative = true;
+    NetflixAPI = (function() {
+      function NetflixAPI() {}
+
+      NetflixAPI.conf = Config.local.netflix;
+
+      NetflixAPI.root = !isRelative ? "" + (NetflixAPI.conf.isSecure ? "https" : "http") + "://" + NetflixAPI.conf.domain + "/" : '';
+
+      NetflixAPI.APIRoot = "" + NetflixAPI.root + "/" + NetflixAPI.conf.APIRoot + "/" + NetflixAPI.conf.APIKey;
 
       NetflixAPI.getMovieInfo = function(movieID, trackID, jquery, type) {
         if (jquery == null) {
@@ -13342,19 +13919,27 @@ return jQuery;
           type = 'shakti';
         }
         if (jquery) {
-          return Q($.getJSON("" + (this._getRoot()) + "/" + Constants.APIRoot + "/" + Constants.APIKey + "/bob", {
+          return $.getJSON("" + this.root + "/" + this.conf.APIRoot + "/" + this.conf.APIKey + "/bob", {
             titleid: movieID,
             trackid: trackID,
-            authURL: Constants.authURL
-          }));
+            authURL: this.conf.authURL
+          });
         } else {
-          return Utils.rawAjax("" + (this._getRoot()) + "/" + Constants.APIRoot + "/" + Constants.APIKey + "/bob?titleid=" + movieID + "&trackid=" + trackID + "&authURL=" + Constants.authURL);
+          return Utils.rawAjax("" + this.root + "/" + this.conf.APIRoot + "/" + this.conf.APIKey + "/bob?titleid=" + movieID + "&trackid=" + trackID + "&authURL=" + this.conf.authURL);
         }
       };
 
       return NetflixAPI;
 
     })();
+    return NetflixAPI.getMovieInfo(1, 1).fail(function(error) {
+      if (error.status === 404 || error.status === 0) {
+        console.log('need to update', Config);
+        return Config.resetNetflix().then(function(data) {
+          return NetflixAPI.conf = Config.local.netflix;
+        });
+      }
+    });
   });
 
 }).call(this);
@@ -14321,61 +14906,58 @@ return jQuery;
 
 (function() {
   'use strict';
-  var __bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
-    __hasProp = {}.hasOwnProperty,
+  var __hasProp = {}.hasOwnProperty,
     __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
 
-  define('modules/handlers/action_handler',["jquery", "KeyboardJS", 'modules/handlers/event_handler'], function($, KeyboardJS, EventHandler) {
-    var ActionHandler;
+  define('modules/handlers/action_handler',["jquery", "watch", "KeyboardJS", 'promise!modules/config', 'modules/handlers/event_handler'], function($, WatchJS, KeyboardJS, Config, EventHandler) {
+    var ActionHandler, isAllowed;
+    isAllowed = true;
+    WatchJS.watch(Config.local.netflix, function(prop, action, newvalue, oldvalue) {
+      return NetflixAPI.conf = this;
+    });
     return ActionHandler = (function(_super) {
       __extends(ActionHandler, _super);
 
       function ActionHandler() {
-        this._bindShortcuts = __bind(this._bindShortcuts, this);
-        this._initActionBlocker = __bind(this._initActionBlocker, this);
-        this._initShortcuts = __bind(this._initShortcuts, this);
-        ActionHandler.__super__.constructor.apply(this, arguments);
-        this.actions = ['left', 'up', 'right', 'down', 'ok', 'cancel'];
-        this._initShortcuts();
-        this._initActionBlocker();
+        return ActionHandler.__super__.constructor.apply(this, arguments);
       }
 
-      ActionHandler.prototype._initShortcuts = function() {
-        return chrome.storage.sync.get(this.actions, (function(_this) {
-          return function(shortcuts) {
-            var action, combo;
-            for (action in shortcuts) {
-              combo = shortcuts[action];
-              _this._bindShortcuts(action, combo);
-            }
-            return true;
-          };
-        })(this));
+      ActionHandler.controls = Config.sync.controls;
+
+      ActionHandler._initShortcuts = function() {
+        var action, combo, _ref, _results;
+        _ref = ActionHandler.controls;
+        _results = [];
+        for (action in _ref) {
+          combo = _ref[action];
+          _results.push(ActionHandler._bindShortcuts(action, combo));
+        }
+        return _results;
       };
 
-      ActionHandler.prototype._initActionBlocker = function() {
-        this.isAllowed = true;
-        $(":input").focus((function(_this) {
-          return function(e) {
-            return _this.isAllowed = false;
-          };
-        })(this));
-        return $(":input").blur((function(_this) {
-          return function(e) {
-            return _this.isAllowed = true;
-          };
-        })(this));
+      ActionHandler._initActionBlocker = function() {
+        ActionHandler.isAllowed = true;
+        $(":input").focus(function(e) {
+          return ActionHandler.isAllowed = false;
+        });
+        return $(":input").blur(function(e) {
+          return ActionHandler.isAllowed = true;
+        });
       };
 
-      ActionHandler.prototype._bindShortcuts = function(action, combo) {
-        return KeyboardJS.on(combo, (function(_this) {
-          return function(e) {
-            if (_this.isAllowed) {
-              return _this.dispatch('OSN:Controls', action);
-            }
-          };
-        })(this));
+      ActionHandler._bindShortcuts = function(action, combo) {
+        return KeyboardJS.on(combo, function(e) {
+          if (ActionHandler.isAllowed) {
+            return ActionHandler.fire('OSN:Controls', {
+              action: action
+            });
+          }
+        });
       };
+
+      ActionHandler._initShortcuts();
+
+      ActionHandler._initActionBlocker();
 
       return ActionHandler;
 
@@ -14388,7 +14970,7 @@ return jQuery;
   'use strict';
   var __bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; };
 
-  define('modules/controllers/base_controller',["jquery"], function($) {
+  define('modules/controllers/base_controller',["jquery", 'modules/handlers/event_handler'], function($, EventHandler) {
     var BaseController;
     return BaseController = (function() {
       function BaseController() {
@@ -14407,12 +14989,10 @@ return jQuery;
           OK: 'ok',
           CANCEL: 'cancel'
         };
-        $(document).on("OSN:Controls", (function(_this) {
+        EventHandler.on("OSN:Controls", (function(_this) {
           return function(e) {
-            return setTimeout(function() {
-              console.log("jquery event:", e);
-              return _this.doAction(e.action);
-            }, 0);
+            console.log("jquery event:", e);
+            return _this.doAction(e.action);
           };
         })(this));
       }
@@ -14946,75 +15526,43 @@ return jQuery;
 
 (function() {
   'use strict';
-  console.log('dddd');
-
   require.config({
     baseUrl: chrome.extension.getURL('scripts'),
+    waitSeconds: 60,
     shim: {
-      simulate: 'jquery'
+      simulate: 'jquery',
+      bootstrap: 'jquery'
     },
     paths: {
+      promise: '../bower_components/requirejs-promise/requirejs-promise',
       jquery: '../bower_components/jquery/dist/jquery',
       q: '../bower_components/q/q',
+      watch: '../bower_components/watch/src/watch',
       simulate: '../bower_components/jquery-simulate/jquery-simulate',
       underscore: '../bower_components/underscore/underscore',
-      bootstrap: '../bower_components/bootstrap/dist/js/bootstrap.js',
+      bootstrap: '../bower_components/bootstrap/dist/js/bootstrap',
       KeyboardJS: '../bower_components/KeyboardJS/keyboard',
-      gamepad: '../bower_components/HTML5-JavaScript-Gamepad-Controller-Library/gamepad.js'
+      gamepad: '../bower_components/HTML5-JavaScript-Gamepad-Controller-Library/gamepad'
     },
     packages: []
   });
 
-  require(['q', 'modules/constants', 'modules/netflix_api', 'modules/utils', 'modules/handlers/action_handler', 'modules/handlers/transmission_handler', 'modules/controllers/home_controller', 'modules/controllers/genre_controller'], function(Q, Constants, NetflixAPI, Utils, ActionHandler, TransmissionHandler, HomeController, GenreController) {
-    var actionHandler, controller, msg, testAPI;
-    msg = new TransmissionHandler('GroundControl');
-    actionHandler = new ActionHandler;
+  require(['q', 'modules/netflix_api', 'modules/utils', 'modules/handlers/action_handler', 'modules/handlers/transmission_handler', 'modules/controllers/home_controller', 'modules/controllers/genre_controller'], function(Q, NetflixAPI, Utils, ActionHandler, TransmissionHandler, HomeController, GenreController) {
+    var controller;
+    console.log('Config2222');
     if (window.location.pathname.match("/WiHome")) {
-      controller = new HomeController;
+      return controller = new HomeController;
     } else if (window.location.pathname.match("/WiGenre")) {
-      controller = new GenreController;
+      return controller = new GenreController;
     }
-    testAPI = function(movieID, trackID) {
-      var deferred, loadedConstantsInterval;
-      deferred = Q.defer();
-      constants.loaded().then(function(data) {
-        return deferred.resolve(NetflixAPI.getMovieInfo(movieID, trackID, false));
-      }, function(error) {
-        return deferred.reject(0);
-      });
-      if (Constants.loaded) {
-        deferred.resolve(NetflixAPI.getMovieInfo(movieID, trackID, false));
-      } else {
-        loadedConstantsInterval = setInterval(function() {
-          if (typeof Constants.loaded === 'boolean') {
-            clearInterval(loadedConstantsInterval);
-            if (!Constants.loaded) {
-              return deferred.resolve(NetflixAPI.getMovieInfo(movieID, trackID, false));
-            }
-          }
-        }, 10);
-      }
-      deferred.promise;
-      return true;
-    };
-    return testAPI('70180183', '13462047').fail(function(error) {
-      if (error === 404 || error === 0) {
-        return msg.transmit('MajorTom', 'OSN:Constants', 'fetch');
-      }
-    });
   });
 
   chrome.extension.sendMessage({}, function(response) {
     var readyStateCheckInterval;
     readyStateCheckInterval = setInterval(function() {
-      var movie;
       if (document.readyState === "complete") {
         clearInterval(readyStateCheckInterval);
         console.log("Hello. This message was sent from scripts/inject.jasds");
-        movie = $('.agMovie.agMovie-lulg').first().find("a");
-        $(".gallery").bind("DOMNodeInserted", function() {
-          return console.log("child is appended");
-        });
       }
     }, 10);
   });
@@ -15023,3 +15571,5 @@ return jQuery;
 
 define("contentscript_src", function(){});
 
+
+//# sourceMappingURL=contentscript.js.map

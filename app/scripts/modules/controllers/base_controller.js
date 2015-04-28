@@ -2,7 +2,7 @@
   'use strict';
   var __bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; };
 
-  define(["jquery"], function($) {
+  define(["jquery", 'modules/handlers/event_handler'], function($, EventHandler) {
     var BaseController;
     return BaseController = (function() {
       function BaseController() {
@@ -21,12 +21,10 @@
           OK: 'ok',
           CANCEL: 'cancel'
         };
-        $(document).on("OSN:Controls", (function(_this) {
+        EventHandler.on("OSN:Controls", (function(_this) {
           return function(e) {
-            return setTimeout(function() {
-              console.log("jquery event:", e);
-              return _this.doAction(e.action);
-            }, 0);
+            console.log("jquery event:", e);
+            return _this.doAction(e.action);
           };
         })(this));
       }

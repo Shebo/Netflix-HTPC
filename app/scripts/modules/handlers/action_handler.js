@@ -1,60 +1,57 @@
 (function() {
   'use strict';
-  var __bind = function(fn, me){ return function(){ return fn.apply(me, arguments); }; },
-    __hasProp = {}.hasOwnProperty,
+  var __hasProp = {}.hasOwnProperty,
     __extends = function(child, parent) { for (var key in parent) { if (__hasProp.call(parent, key)) child[key] = parent[key]; } function ctor() { this.constructor = child; } ctor.prototype = parent.prototype; child.prototype = new ctor(); child.__super__ = parent.prototype; return child; };
 
-  define(["jquery", "KeyboardJS", 'modules/handlers/event_handler'], function($, KeyboardJS, EventHandler) {
-    var ActionHandler;
+  define(["jquery", "watch", "KeyboardJS", 'promise!modules/config', 'modules/handlers/event_handler'], function($, WatchJS, KeyboardJS, Config, EventHandler) {
+    var ActionHandler, isAllowed;
+    isAllowed = true;
+    WatchJS.watch(Config.local.netflix, function(prop, action, newvalue, oldvalue) {
+      return NetflixAPI.conf = this;
+    });
     return ActionHandler = (function(_super) {
       __extends(ActionHandler, _super);
 
       function ActionHandler() {
-        this._bindShortcuts = __bind(this._bindShortcuts, this);
-        this._initActionBlocker = __bind(this._initActionBlocker, this);
-        this._initShortcuts = __bind(this._initShortcuts, this);
-        ActionHandler.__super__.constructor.apply(this, arguments);
-        this.actions = ['left', 'up', 'right', 'down', 'ok', 'cancel'];
-        this._initShortcuts();
-        this._initActionBlocker();
+        return ActionHandler.__super__.constructor.apply(this, arguments);
       }
 
-      ActionHandler.prototype._initShortcuts = function() {
-        return chrome.storage.sync.get(this.actions, (function(_this) {
-          return function(shortcuts) {
-            var action, combo;
-            for (action in shortcuts) {
-              combo = shortcuts[action];
-              _this._bindShortcuts(action, combo);
-            }
-            return true;
-          };
-        })(this));
+      ActionHandler.controls = Config.sync.controls;
+
+      ActionHandler._initShortcuts = function() {
+        var action, combo, _ref, _results;
+        _ref = ActionHandler.controls;
+        _results = [];
+        for (action in _ref) {
+          combo = _ref[action];
+          _results.push(ActionHandler._bindShortcuts(action, combo));
+        }
+        return _results;
       };
 
-      ActionHandler.prototype._initActionBlocker = function() {
-        this.isAllowed = true;
-        $(":input").focus((function(_this) {
-          return function(e) {
-            return _this.isAllowed = false;
-          };
-        })(this));
-        return $(":input").blur((function(_this) {
-          return function(e) {
-            return _this.isAllowed = true;
-          };
-        })(this));
+      ActionHandler._initActionBlocker = function() {
+        ActionHandler.isAllowed = true;
+        $(":input").focus(function(e) {
+          return ActionHandler.isAllowed = false;
+        });
+        return $(":input").blur(function(e) {
+          return ActionHandler.isAllowed = true;
+        });
       };
 
-      ActionHandler.prototype._bindShortcuts = function(action, combo) {
-        return KeyboardJS.on(combo, (function(_this) {
-          return function(e) {
-            if (_this.isAllowed) {
-              return _this.dispatch('OSN:Controls', action);
-            }
-          };
-        })(this));
+      ActionHandler._bindShortcuts = function(action, combo) {
+        return KeyboardJS.on(combo, function(e) {
+          if (ActionHandler.isAllowed) {
+            return ActionHandler.fire('OSN:Controls', {
+              action: action
+            });
+          }
+        });
       };
+
+      ActionHandler._initShortcuts();
+
+      ActionHandler._initActionBlocker();
 
       return ActionHandler;
 
